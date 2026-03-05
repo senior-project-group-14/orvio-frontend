@@ -9,8 +9,13 @@ interface CartItem {
   unitPrice: number;
 }
 
+const SESSION_DURATION_SECONDS = 30;
+
 export function ShoppingCartPage() {
   const navigate = useNavigate();
+  const [isCompletingPurchase, setIsCompletingPurchase] = useState(false);
+  const [isCancellingSession, setIsCancellingSession] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
   
   // Mock cart data with pricing - simulating AI-detected items
   const [cartItems, setCartItems] = useState<CartItem[]>([
@@ -19,25 +24,106 @@ export function ShoppingCartPage() {
     { id: "3", name: "Greek Yogurt", quantity: 3, unitPrice: 3.49 },
   ]);
 
-  // 60-second countdown timer
-  const [timeRemaining, setTimeRemaining] = useState(60);
+  // Session countdown timer (reload-safe, derived from backend start time)
+  const [timeRemaining, setTimeRemaining] = useState(SESSION_DURATION_SECONDS);
   const [showExpirationModal, setShowExpirationModal] = useState(false);
   const [autoCompleteCountdown, setAutoCompleteCountdown] = useState(10);
 
-  // Main 60-second timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setShowExpirationModal(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+  const getBaseUrl = () => {
+    const url = import.meta.env.VITE_BACKEND_URL;
+    if (url && String(url).trim()) {
+      return String(url).replace(/\/$/, "");
+    }
+    return "/api";
+  };
 
-    return () => clearInterval(timer);
+  const getRemainingSeconds = (startedAtMs: number) => {
+    const elapsedSeconds = Math.floor((Date.now() - startedAtMs) / 1000);
+    return Math.max(0, SESSION_DURATION_SECONDS - elapsedSeconds);
+  };
+
+  // Countdown is based on DB start_time so refresh does not reset the timer.
+  useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const initializeCountdown = async () => {
+      try {
+        const deviceId = localStorage.getItem("orvio_device_id");
+        if (!deviceId) {
+          throw new Error("Device ID not found. Please scan QR again.");
+        }
+
+        const response = await fetch(
+          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
+        );
+
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+          has_active_session?: boolean;
+          transaction_id?: string | null;
+          started_at?: string | null;
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.message || payload.error || "Failed to load session.");
+        }
+
+        if (!payload.has_active_session || !payload.started_at) {
+          throw new Error("Active session not found.");
+        }
+
+        if (payload.transaction_id) {
+          localStorage.setItem("orvio_transaction_id", payload.transaction_id);
+        }
+
+        const startedAtMs = new Date(payload.started_at).getTime();
+        if (Number.isNaN(startedAtMs)) {
+          throw new Error("Invalid session start time.");
+        }
+
+        const initialRemaining = getRemainingSeconds(startedAtMs);
+        if (cancelled) {
+          return;
+        }
+
+        setTimeRemaining(initialRemaining);
+
+        if (initialRemaining <= 0) {
+          setShowExpirationModal(true);
+          return;
+        }
+
+        timer = setInterval(() => {
+          const remaining = getRemainingSeconds(startedAtMs);
+          setTimeRemaining(remaining);
+
+          if (remaining <= 0) {
+            if (timer) {
+              clearInterval(timer);
+            }
+            setShowExpirationModal(true);
+          }
+        }, 1000);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Failed to initialize session timer.";
+        setCompleteError(message);
+        setTimeRemaining(0);
+      }
+    };
+
+    void initializeCountdown();
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearInterval(timer);
+      }
+    };
   }, []);
 
   // 10-second auto-complete countdown in modal
@@ -71,15 +157,118 @@ export function ShoppingCartPage() {
   };
 
   const handleCompletePurchase = () => {
-    // Store cart items for purchase details page
-    localStorage.setItem("purchaseItems", JSON.stringify(cartItems));
-    navigate("/completed");
+    void finalizeAndCompletePurchase();
+  };
+
+  const finalizeAndCompletePurchase = async () => {
+    setCompleteError(null);
+    setIsCompletingPurchase(true);
+
+    try {
+      const transactionId = localStorage.getItem("orvio_transaction_id");
+      const deviceId = localStorage.getItem("orvio_device_id");
+
+      if (transactionId && deviceId) {
+        const endResponse = await fetch(
+          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ended_at: new Date().toISOString(),
+            }),
+          }
+        );
+
+        const endPayload = (await endResponse.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+
+        if (!endResponse.ok) {
+          throw new Error(endPayload.message || endPayload.error || "Failed to end session.");
+        }
+
+        const confirmResponse = await fetch(
+          `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/confirm`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({}),
+          }
+        );
+
+        const confirmPayload = (await confirmResponse.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+
+        if (!confirmResponse.ok) {
+          throw new Error(confirmPayload.message || confirmPayload.error || "Failed to confirm transaction.");
+        }
+      }
+
+      localStorage.setItem("purchaseItems", JSON.stringify(cartItems));
+      localStorage.removeItem("orvio_transaction_id");
+      navigate("/completed", { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to complete purchase.";
+      setCompleteError(message);
+    } finally {
+      setIsCompletingPurchase(false);
+    }
   };
 
   const handleCancelSession = () => {
-    // Clear cart and navigate to feedback screen
-    setCartItems([]);
-    navigate("/feedback");
+    void finalizeAndCancelSession();
+  };
+
+  const finalizeAndCancelSession = async () => {
+    setCompleteError(null);
+    setIsCancellingSession(true);
+
+    try {
+      const transactionId = localStorage.getItem("orvio_transaction_id");
+      const deviceId = localStorage.getItem("orvio_device_id");
+
+      if (transactionId && deviceId) {
+        const endResponse = await fetch(
+          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              ended_at: new Date().toISOString(),
+              cancelled: true,
+            }),
+          }
+        );
+
+        const endPayload = (await endResponse.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+        };
+
+        if (!endResponse.ok) {
+          throw new Error(endPayload.message || endPayload.error || "Failed to cancel session.");
+        }
+      }
+
+      setCartItems([]);
+      localStorage.removeItem("orvio_transaction_id");
+      navigate("/feedback", { replace: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to cancel session.";
+      setCompleteError(message);
+    } finally {
+      setIsCancellingSession(false);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -173,11 +362,16 @@ export function ShoppingCartPage() {
 
         <button
           onClick={handleCompletePurchase}
-          disabled={cartItems.length === 0}
+          disabled={cartItems.length === 0 || isCompletingPurchase || isCancellingSession}
           className="w-full min-h-[56px] bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
         >
-          Complete &amp; Confirm Purchase
+          {isCompletingPurchase ? "Completing Purchase..." : "Complete & Confirm Purchase"}
         </button>
+        {completeError && (
+          <p className="text-sm text-red-600 text-center leading-relaxed mt-3">
+            {completeError}
+          </p>
+        )}
 
         {/* Support text */}
         <p className="text-center text-sm text-gray-600 mt-4">
@@ -227,9 +421,10 @@ export function ShoppingCartPage() {
                 </button>
                 <button
                   onClick={handleCancelSession}
+                  disabled={isCancellingSession || isCompletingPurchase}
                   className="w-full min-h-[56px] bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 font-medium py-4 px-6 rounded-2xl border-2 border-gray-300 transition-colors duration-200 text-lg touch-manipulation"
                 >
-                  Cancel Session
+                  {isCancellingSession ? "Cancelling Session..." : "Cancel Session"}
                 </button>
               </div>
             </div>

@@ -5,7 +5,7 @@ export function FeedbackPage() {
   const navigate = useNavigate();
 
   const handleClose = () => {
-    navigate("/");
+    navigate("/", { replace: true });
   };
 
   const handleContactUs = () => {

@@ -132,7 +132,7 @@ export default function StatusTab({ fridgeData, temperatureTrend, isLoading = fa
               24ms
             </p>
             <p style={{ fontSize: '12px', color: '#6B7280' }}>
-              IP: 192.168.1.105
+              IP: your_IPv45
             </p>
           </div>
         </div>

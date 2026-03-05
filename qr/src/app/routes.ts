@@ -11,6 +11,10 @@ export const router = createBrowserRouter([
     Component: WelcomePage,
   },
   {
+    path: "/cooler/:device_id",
+    Component: WelcomePage,
+  },
+  {
     path: "/cart",
     Component: ShoppingCartPage,
   },

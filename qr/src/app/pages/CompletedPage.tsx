@@ -6,7 +6,7 @@ export function CompletedPage() {
   const navigate = useNavigate();
 
   const handleViewPurchase = () => {
-    navigate("/purchase-details");
+    navigate("/purchase-details", { replace: true });
   };
 
   return (

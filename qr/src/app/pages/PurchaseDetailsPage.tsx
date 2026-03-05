@@ -21,7 +21,7 @@ export function PurchaseDetailsPage() {
       setPurchaseItems(JSON.parse(storedItems));
     } else {
       // If no items found, redirect to welcome
-      navigate("/");
+      navigate("/", { replace: true });
     }
   }, [navigate]);
 
@@ -30,7 +30,7 @@ export function PurchaseDetailsPage() {
   };
 
   const handleClose = () => {
-    navigate("/completed");
+    navigate("/completed", { replace: true });
   };
 
   return (
