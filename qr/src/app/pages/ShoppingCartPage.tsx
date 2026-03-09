@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { Minus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 
 interface CartItem {
   id: string;
@@ -10,6 +10,8 @@ interface CartItem {
 }
 
 const SESSION_DURATION_SECONDS = 30;
+const ONE_TIME_EXTENSION_SECONDS = 30;
+const AUTO_COMPLETE_SECONDS = 10;
 
 export function ShoppingCartPage() {
   const navigate = useNavigate();
@@ -26,8 +28,10 @@ export function ShoppingCartPage() {
 
   // Session countdown timer (reload-safe, derived from backend start time)
   const [timeRemaining, setTimeRemaining] = useState(SESSION_DURATION_SECONDS);
+  const [sessionEndsAtMs, setSessionEndsAtMs] = useState<number | null>(null);
   const [showExpirationModal, setShowExpirationModal] = useState(false);
-  const [autoCompleteCountdown, setAutoCompleteCountdown] = useState(10);
+  const [autoCompleteCountdown, setAutoCompleteCountdown] = useState(AUTO_COMPLETE_SECONDS);
+  const [hasUsedOneTimeExtension, setHasUsedOneTimeExtension] = useState(false);
 
   const getBaseUrl = () => {
     const url = import.meta.env.VITE_BACKEND_URL;
@@ -37,14 +41,25 @@ export function ShoppingCartPage() {
     return "/api";
   };
 
-  const getRemainingSeconds = (startedAtMs: number) => {
-    const elapsedSeconds = Math.floor((Date.now() - startedAtMs) / 1000);
-    return Math.max(0, SESSION_DURATION_SECONDS - elapsedSeconds);
+  const getRemainingSeconds = (endsAtMs: number) => {
+    return Math.max(0, Math.ceil((endsAtMs - Date.now()) / 1000));
+  };
+
+  const getExtensionUsedStorageKey = (transactionId: string) => {
+    return `orvio_one_time_extension_used_${transactionId}`;
+  };
+
+  const getSessionEndsAtStorageKey = (transactionId: string) => {
+    return `orvio_session_ends_at_${transactionId}`;
+  };
+
+  const clearSessionExtensionState = (transactionId: string) => {
+    localStorage.removeItem(getExtensionUsedStorageKey(transactionId));
+    localStorage.removeItem(getSessionEndsAtStorageKey(transactionId));
   };
 
   // Countdown is based on DB start_time so refresh does not reset the timer.
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
 
     const initializeCountdown = async () => {
@@ -74,8 +89,10 @@ export function ShoppingCartPage() {
           throw new Error("Active session not found.");
         }
 
-        if (payload.transaction_id) {
-          localStorage.setItem("orvio_transaction_id", payload.transaction_id);
+        const activeTransactionId = payload.transaction_id || localStorage.getItem("orvio_transaction_id");
+
+        if (activeTransactionId) {
+          localStorage.setItem("orvio_transaction_id", activeTransactionId);
         }
 
         const startedAtMs = new Date(payload.started_at).getTime();
@@ -83,29 +100,37 @@ export function ShoppingCartPage() {
           throw new Error("Invalid session start time.");
         }
 
-        const initialRemaining = getRemainingSeconds(startedAtMs);
+        const initialEndsAtMs = startedAtMs + SESSION_DURATION_SECONDS * 1000;
+
+        let resolvedEndsAtMs = initialEndsAtMs;
+        let persistedExtensionUsed = false;
+
+        if (activeTransactionId) {
+          persistedExtensionUsed =
+            localStorage.getItem(getExtensionUsedStorageKey(activeTransactionId)) === "1";
+
+          const persistedEndsAtRaw = localStorage.getItem(
+            getSessionEndsAtStorageKey(activeTransactionId)
+          );
+          const persistedEndsAtMs = persistedEndsAtRaw ? Number(persistedEndsAtRaw) : Number.NaN;
+
+          if (Number.isFinite(persistedEndsAtMs) && persistedEndsAtMs > resolvedEndsAtMs) {
+            resolvedEndsAtMs = persistedEndsAtMs;
+          }
+        }
+
+        const initialRemaining = getRemainingSeconds(resolvedEndsAtMs);
         if (cancelled) {
           return;
         }
 
+        setHasUsedOneTimeExtension(persistedExtensionUsed);
+        setSessionEndsAtMs(resolvedEndsAtMs);
         setTimeRemaining(initialRemaining);
 
         if (initialRemaining <= 0) {
           setShowExpirationModal(true);
-          return;
         }
-
-        timer = setInterval(() => {
-          const remaining = getRemainingSeconds(startedAtMs);
-          setTimeRemaining(remaining);
-
-          if (remaining <= 0) {
-            if (timer) {
-              clearInterval(timer);
-            }
-            setShowExpirationModal(true);
-          }
-        }, 1000);
       } catch (error) {
         if (cancelled) {
           return;
@@ -120,15 +145,33 @@ export function ShoppingCartPage() {
 
     return () => {
       cancelled = true;
-      if (timer) {
-        clearInterval(timer);
-      }
     };
   }, []);
+
+  useEffect(() => {
+    if (sessionEndsAtMs === null) {
+      return;
+    }
+
+    const updateRemaining = () => {
+      const remaining = getRemainingSeconds(sessionEndsAtMs);
+      setTimeRemaining(remaining);
+
+      if (remaining <= 0) {
+        setShowExpirationModal(true);
+      }
+    };
+
+    updateRemaining();
+    const timer = setInterval(updateRemaining, 1000);
+    return () => clearInterval(timer);
+  }, [sessionEndsAtMs]);
 
   // 10-second auto-complete countdown in modal
   useEffect(() => {
     if (showExpirationModal) {
+      setAutoCompleteCountdown(AUTO_COMPLETE_SECONDS);
+
       const autoCompleteTimer = setInterval(() => {
         setAutoCompleteCountdown((prev) => {
           if (prev <= 1) {
@@ -156,8 +199,40 @@ export function ShoppingCartPage() {
     );
   };
 
+  const handleIncreaseQuantity = (itemId: string) => {
+    setCartItems((prevItems) =>
+      prevItems.map((item) =>
+        item.id === itemId
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      )
+    );
+  };
+
   const handleCompletePurchase = () => {
     void finalizeAndCompletePurchase();
+  };
+
+  const handleExtendSessionOnce = () => {
+    if (hasUsedOneTimeExtension) {
+      return;
+    }
+
+    const transactionId = localStorage.getItem("orvio_transaction_id");
+    const now = Date.now();
+    const baseEndsAtMs = sessionEndsAtMs ? Math.max(sessionEndsAtMs, now) : now;
+    const extendedEndsAtMs = baseEndsAtMs + ONE_TIME_EXTENSION_SECONDS * 1000;
+
+    if (transactionId) {
+      localStorage.setItem(getExtensionUsedStorageKey(transactionId), "1");
+      localStorage.setItem(getSessionEndsAtStorageKey(transactionId), String(extendedEndsAtMs));
+    }
+
+    setSessionEndsAtMs(extendedEndsAtMs);
+    setTimeRemaining(ONE_TIME_EXTENSION_SECONDS);
+    setShowExpirationModal(false);
+    setHasUsedOneTimeExtension(true);
+    setCompleteError(null);
   };
 
   const finalizeAndCompletePurchase = async () => {
@@ -210,6 +285,8 @@ export function ShoppingCartPage() {
         if (!confirmResponse.ok) {
           throw new Error(confirmPayload.message || confirmPayload.error || "Failed to confirm transaction.");
         }
+
+        clearSessionExtensionState(transactionId);
       }
 
       localStorage.setItem("purchaseItems", JSON.stringify(cartItems));
@@ -258,6 +335,8 @@ export function ShoppingCartPage() {
         if (!endResponse.ok) {
           throw new Error(endPayload.message || endPayload.error || "Failed to cancel session.");
         }
+
+        clearSessionExtensionState(transactionId);
       }
 
       setCartItems([]);
@@ -328,6 +407,13 @@ export function ShoppingCartPage() {
                         aria-label={`Decrease quantity of ${item.name}`}
                       >
                         <Minus className="w-5 h-5 text-gray-700" />
+                      </button>
+                      <button
+                        onClick={() => handleIncreaseQuantity(item.id)}
+                        className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200 active:bg-blue-300 transition-colors duration-200"
+                        aria-label={`Increase quantity of ${item.name}`}
+                      >
+                        <Plus className="w-5 h-5 text-blue-700" />
                       </button>
                     </div>
                     <div className="text-right">
@@ -413,6 +499,15 @@ export function ShoppingCartPage() {
 
               {/* Action buttons */}
               <div className="space-y-3 pt-2">
+                {!hasUsedOneTimeExtension && (
+                  <button
+                    onClick={handleExtendSessionOnce}
+                    disabled={isCancellingSession || isCompletingPurchase}
+                    className="w-full min-h-[56px] bg-amber-400 hover:bg-amber-500 active:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-amber-950 font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
+                  >
+                    Add 30 Seconds (One Time)
+                  </button>
+                )}
                 <button
                   onClick={handleCompletePurchase}
                   className="w-full min-h-[56px] bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
