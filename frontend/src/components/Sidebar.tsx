@@ -1,4 +1,4 @@
-import { LayoutDashboard, Refrigerator, Bell, Receipt, UserCog, Settings } from 'lucide-react';
+import { LayoutDashboard, Refrigerator, Bell, Receipt, UserCog, Settings, Package } from 'lucide-react';
 import { getCurrentUserRole } from '../api/client';
 
 interface SidebarProps {
@@ -13,6 +13,7 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const menuItems = [
     { name: 'Dashboard', icon: LayoutDashboard },
     { name: 'Fridges', icon: Refrigerator },
+    { name: 'Products', icon: Package },
     { name: 'Alerts', icon: Bell },
     { name: 'Transactions', icon: Receipt },
     ...(isSystemAdmin ? [{ name: 'Admin Management', icon: UserCog }] : []),

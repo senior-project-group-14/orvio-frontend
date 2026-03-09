@@ -7,6 +7,7 @@ import FridgeDetail from './components/FridgeDetail';
 import AlertsScreen from './components/AlertsScreen';
 import TransactionsScreen from './components/TransactionsScreen';
 import AdminManagementScreen from './components/AdminManagementScreen';
+import ProductsScreen from './components/ProductsScreen';
 import { clearToken, getCurrentUserRole } from './api/client';
 
 export default function App() {
@@ -79,6 +80,9 @@ export default function App() {
           )}
           {currentPage === 'Transactions' && (
             <TransactionsScreen onLogout={handleLogout} onNavigate={handleNavigate} />
+          )}
+          {currentPage === 'Products' && (
+            <ProductsScreen onLogout={handleLogout} onNavigate={handleNavigate} />
           )}
           {currentPage === 'Admin Management' && isSystemAdmin && (
             <AdminManagementScreen onLogout={handleLogout} onNavigate={handleNavigate} />

@@ -175,6 +175,54 @@ export interface DeviceAssignment {
   device?: { device_id: string; name?: string | null } | null;
 }
 
+export interface BrandItem {
+  brand_id: string;
+  brand_name: string;
+  description?: string | null;
+}
+
+export interface ProductItem {
+  product_id: string;
+  name: string;
+  brand_id: string;
+  unit_price: number | string;
+  image_reference?: string | null;
+  is_active?: boolean;
+  brand?: BrandItem | null;
+}
+
+export interface CoolerProductAssignment {
+  device_id: string;
+  product_id: string;
+  is_active?: boolean;
+  product_name?: string;
+  brand_name?: string | null;
+  unit_price?: number | string;
+}
+
+export interface InventoryCheckIssue {
+  product_id: string;
+  product_name?: string;
+  brand_name?: string | null;
+  current_stock?: number;
+  issue: string;
+}
+
+export interface CoolerInventoryCheck {
+  device_id: string;
+  summary: {
+    assigned_count: number;
+    inventory_count: number;
+    missing_in_inventory: number;
+    missing_in_assignments: number;
+    capacity_warnings: number;
+    is_consistent: boolean;
+  };
+  missing_in_inventory: InventoryCheckIssue[];
+  missing_in_assignments: InventoryCheckIssue[];
+  capacity_warnings: InventoryCheckIssue[];
+}
+
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
   const parts = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
@@ -261,6 +309,72 @@ export async function deleteSysadminAdmin(adminId: string): Promise<{ message: s
 export async function getSysadminDevices(pagination?: PaginationParams): Promise<PaginatedResponse<AdminDevice>> {
   const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
   return apiRequest<PaginatedResponse<AdminDevice>>(`/devices${query}`);
+}
+
+export async function getBrands(pagination?: PaginationParams): Promise<PaginatedResponse<BrandItem>> {
+  const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
+  return apiRequest<PaginatedResponse<BrandItem>>(`/brands${query}`);
+}
+
+export async function getProducts(pagination?: PaginationParams): Promise<PaginatedResponse<ProductItem>> {
+  const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
+  return apiRequest<PaginatedResponse<ProductItem>>(`/products${query}`);
+}
+
+export async function createProduct(payload: {
+  name: string;
+  brand_id: string;
+  unit_price: number;
+  image_reference?: string;
+  is_active?: boolean;
+}): Promise<ProductItem> {
+  return apiRequest<ProductItem>('/products', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateProduct(productId: string, payload: {
+  name?: string;
+  brand_id?: string;
+  unit_price?: number;
+  image_reference?: string;
+  is_active?: boolean;
+}): Promise<ProductItem> {
+  return apiRequest<ProductItem>(`/products/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteProduct(productId: string): Promise<{ message: string; product_id: string }> {
+  return apiRequest<{ message: string; product_id: string }>(`/products/${productId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getCoolerProducts(coolerId: string, pagination?: PaginationParams): Promise<PaginatedResponse<CoolerProductAssignment>> {
+  const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
+  return apiRequest<PaginatedResponse<CoolerProductAssignment>>(`/coolers/${coolerId}/products${query}`);
+}
+
+export async function assignCoolerProduct(coolerId: string, payload: {
+  product_id: string;
+}): Promise<CoolerProductAssignment> {
+  return apiRequest<CoolerProductAssignment>(`/coolers/${coolerId}/products`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeCoolerProduct(coolerId: string, productId: string): Promise<{ message: string; device_id: string; product_id: string }> {
+  return apiRequest<{ message: string; device_id: string; product_id: string }>(`/coolers/${coolerId}/products/${productId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getCoolerInventoryCheck(coolerId: string): Promise<CoolerInventoryCheck> {
+  return apiRequest<CoolerInventoryCheck>(`/coolers/${coolerId}/inventory-check`);
 }
 
 export async function getSysadminAssignments(pagination?: PaginationParams): Promise<PaginatedResponse<DeviceAssignment>> {
