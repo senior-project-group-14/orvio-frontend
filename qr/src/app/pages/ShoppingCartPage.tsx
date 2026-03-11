@@ -1,12 +1,18 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
-import { Minus, Plus } from "lucide-react";
 
 interface CartItem {
   id: string;
   name: string;
   quantity: number;
   unitPrice: number;
+}
+
+interface CartApiItem {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price: number;
 }
 
 const SESSION_DURATION_SECONDS = 30;
@@ -18,13 +24,10 @@ export function ShoppingCartPage() {
   const [isCompletingPurchase, setIsCompletingPurchase] = useState(false);
   const [isCancellingSession, setIsCancellingSession] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
-  
-  // Mock cart data with pricing - simulating AI-detected items
-  const [cartItems, setCartItems] = useState<CartItem[]>([
-    { id: "1", name: "Sparkling Water", quantity: 2, unitPrice: 2.99 },
-    { id: "2", name: "Orange Juice", quantity: 1, unitPrice: 4.99 },
-    { id: "3", name: "Greek Yogurt", quantity: 3, unitPrice: 3.49 },
-  ]);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
+  const [isCartLoading, setIsCartLoading] = useState(true);
+  const [cartTotalFromServer, setCartTotalFromServer] = useState<number | null>(null);
 
   // Session countdown timer (reload-safe, derived from backend start time)
   const [timeRemaining, setTimeRemaining] = useState(SESSION_DURATION_SECONDS);
@@ -56,6 +59,45 @@ export function ShoppingCartPage() {
   const clearSessionExtensionState = (transactionId: string) => {
     localStorage.removeItem(getExtensionUsedStorageKey(transactionId));
     localStorage.removeItem(getSessionEndsAtStorageKey(transactionId));
+  };
+
+  const mapCartItems = (items: CartApiItem[]): CartItem[] => {
+    return items.map((item) => ({
+      id: item.product_id,
+      name: item.name,
+      quantity: Number(item.quantity || 0),
+      unitPrice: Number(item.unit_price || 0),
+    }));
+  };
+
+  const loadSessionCart = async (transactionId: string, silent = false) => {
+    if (!transactionId) {
+      return;
+    }
+
+    if (!silent) {
+      setIsCartLoading(true);
+    }
+
+    const response = await fetch(
+      `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart`
+    );
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      message?: string;
+      cart?: CartApiItem[];
+      total_price?: number;
+    };
+
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || "Failed to load cart.");
+    }
+
+    const nextCartItems = mapCartItems(payload.cart || []);
+    setCartItems(nextCartItems);
+    setCartTotalFromServer(Number(payload.total_price || 0));
+    setCompleteError(null);
+    setIsCartLoading(false);
   };
 
   // Countdown is based on DB start_time so refresh does not reset the timer.
@@ -93,6 +135,7 @@ export function ShoppingCartPage() {
 
         if (activeTransactionId) {
           localStorage.setItem("orvio_transaction_id", activeTransactionId);
+          setActiveTransactionId(activeTransactionId);
         }
 
         const startedAtMs = new Date(payload.started_at).getTime();
@@ -138,6 +181,7 @@ export function ShoppingCartPage() {
         const message = error instanceof Error ? error.message : "Failed to initialize session timer.";
         setCompleteError(message);
         setTimeRemaining(0);
+        setIsCartLoading(false);
       }
     };
 
@@ -147,6 +191,41 @@ export function ShoppingCartPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeTransactionId) {
+      const localTransactionId = localStorage.getItem("orvio_transaction_id");
+      if (localTransactionId) {
+        setActiveTransactionId(localTransactionId);
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchCart = async (silent: boolean) => {
+      try {
+        await loadSessionCart(activeTransactionId, silent);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Failed to load cart.";
+        setCompleteError(message);
+        setIsCartLoading(false);
+      }
+    };
+
+    void fetchCart(false);
+    const pollTimer = setInterval(() => {
+      void fetchCart(true);
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+    };
+  }, [activeTransactionId]);
 
   useEffect(() => {
     if (sessionEndsAtMs === null) {
@@ -187,28 +266,6 @@ export function ShoppingCartPage() {
     }
   }, [showExpirationModal]);
 
-  const handleDecreaseQuantity = (itemId: string) => {
-    setCartItems((prevItems) =>
-      prevItems
-        .map((item) =>
-          item.id === itemId
-            ? { ...item, quantity: Math.max(0, item.quantity - 1) }
-            : item
-        )
-        .filter((item) => item.quantity > 0)
-    );
-  };
-
-  const handleIncreaseQuantity = (itemId: string) => {
-    setCartItems((prevItems) =>
-      prevItems.map((item) =>
-        item.id === itemId
-          ? { ...item, quantity: item.quantity + 1 }
-          : item
-      )
-    );
-  };
-
   const handleCompletePurchase = () => {
     void finalizeAndCompletePurchase();
   };
@@ -244,6 +301,8 @@ export function ShoppingCartPage() {
       const deviceId = localStorage.getItem("orvio_device_id");
 
       if (transactionId && deviceId) {
+        await loadSessionCart(transactionId, true);
+
         const endResponse = await fetch(
           `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
           {
@@ -357,6 +416,9 @@ export function ShoppingCartPage() {
   };
 
   const getTotalPrice = () => {
+    if (cartTotalFromServer !== null) {
+      return cartTotalFromServer;
+    }
     return cartItems.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   };
 
@@ -380,7 +442,13 @@ export function ShoppingCartPage() {
 
       {/* Cart items list */}
       <div className="flex-1 px-6 overflow-y-auto pb-4">
-        {cartItems.length === 0 ? (
+        {isCartLoading ? (
+          <div className="flex items-center justify-center h-64">
+            <p className="text-gray-400 text-center">
+              Loading cart...
+            </p>
+          </div>
+        ) : cartItems.length === 0 ? (
           <div className="flex items-center justify-center h-64">
             <p className="text-gray-400 text-center">
               Your cart is empty
@@ -396,25 +464,9 @@ export function ShoppingCartPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {/* Quantity in "3x" format */}
                       <span className="text-base text-gray-700 font-medium min-w-[32px]">
                         {item.quantity}x
                       </span>
-                      {/* Minus button */}
-                      <button
-                        onClick={() => handleDecreaseQuantity(item.id)}
-                        className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 transition-colors duration-200"
-                        aria-label={`Decrease quantity of ${item.name}`}
-                      >
-                        <Minus className="w-5 h-5 text-gray-700" />
-                      </button>
-                      <button
-                        onClick={() => handleIncreaseQuantity(item.id)}
-                        className="min-w-[44px] min-h-[44px] w-11 h-11 flex items-center justify-center rounded-full bg-blue-100 hover:bg-blue-200 active:bg-blue-300 transition-colors duration-200"
-                        aria-label={`Increase quantity of ${item.name}`}
-                      >
-                        <Plus className="w-5 h-5 text-blue-700" />
-                      </button>
                     </div>
                     <div className="text-right">
                       <p className="text-sm text-gray-500">
