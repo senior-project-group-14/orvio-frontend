@@ -15,8 +15,8 @@ interface CartApiItem {
   unit_price: number;
 }
 
-const SESSION_DURATION_SECONDS = 30;
-const ONE_TIME_EXTENSION_SECONDS = 30;
+const SESSION_DURATION_SECONDS = 120;
+const ONE_TIME_EXTENSION_SECONDS = 120;
 const AUTO_COMPLETE_SECONDS = 10;
 
 export function ShoppingCartPage() {
