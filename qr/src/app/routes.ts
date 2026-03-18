@@ -4,6 +4,7 @@ import { ShoppingCartPage } from "@/app/pages/ShoppingCartPage";
 import { CompletedPage } from "@/app/pages/CompletedPage";
 import { PurchaseDetailsPage } from "@/app/pages/PurchaseDetailsPage";
 import { FeedbackPage } from "@/app/pages/FeedbackPage";
+import { NoItemsPage } from "@/app/pages/NoItemsPage";
 
 export const router = createBrowserRouter([
   {
@@ -29,5 +30,9 @@ export const router = createBrowserRouter([
   {
     path: "/feedback",
     Component: FeedbackPage,
+  },
+  {
+    path: "/no-items",
+    Component: NoItemsPage,
   },
 ]);

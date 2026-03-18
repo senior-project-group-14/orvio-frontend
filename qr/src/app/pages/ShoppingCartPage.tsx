@@ -25,6 +25,7 @@ export function ShoppingCartPage() {
   const [isCancellingSession, setIsCancellingSession] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
   const [isCartLoading, setIsCartLoading] = useState(true);
   const [cartTotalFromServer, setCartTotalFromServer] = useState<number | null>(null);
@@ -70,9 +71,9 @@ export function ShoppingCartPage() {
     }));
   };
 
-  const loadSessionCart = async (transactionId: string, silent = false) => {
+  const loadSessionCart = async (transactionId: string, silent = false): Promise<CartItem[]> => {
     if (!transactionId) {
-      return;
+      return [];
     }
 
     if (!silent) {
@@ -98,6 +99,47 @@ export function ShoppingCartPage() {
     setCartTotalFromServer(Number(payload.total_price || 0));
     setCompleteError(null);
     setIsCartLoading(false);
+    return nextCartItems;
+  };
+
+  const adjustCartItemQuantity = async (productId: string, delta: number) => {
+    const transactionId = localStorage.getItem("orvio_transaction_id");
+    if (!transactionId) {
+      throw new Error("Transaction not found. Please scan the QR again.");
+    }
+
+    setUpdatingItemId(productId);
+    setCompleteError(null);
+
+    try {
+      const response = await fetch(
+        `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart/items/${encodeURIComponent(productId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ delta }),
+        }
+      );
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        cart?: CartApiItem[];
+        total_price?: number;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || payload.error || "Failed to update item quantity.");
+      }
+
+      const nextItems = mapCartItems(payload.cart || []);
+      setCartItems(nextItems);
+      setCartTotalFromServer(Number(payload.total_price || 0));
+    } finally {
+      setUpdatingItemId(null);
+    }
   };
 
   // Countdown is based on DB start_time so refresh does not reset the timer.
@@ -270,6 +312,20 @@ export function ShoppingCartPage() {
     void finalizeAndCompletePurchase();
   };
 
+  const handleIncreaseItem = (productId: string) => {
+    void adjustCartItemQuantity(productId, 1).catch((error) => {
+      const message = error instanceof Error ? error.message : "Failed to update item quantity.";
+      setCompleteError(message);
+    });
+  };
+
+  const handleDecreaseItem = (productId: string) => {
+    void adjustCartItemQuantity(productId, -1).catch((error) => {
+      const message = error instanceof Error ? error.message : "Failed to update item quantity.";
+      setCompleteError(message);
+    });
+  };
+
   const handleExtendSessionOnce = () => {
     if (hasUsedOneTimeExtension) {
       return;
@@ -299,9 +355,10 @@ export function ShoppingCartPage() {
     try {
       const transactionId = localStorage.getItem("orvio_transaction_id");
       const deviceId = localStorage.getItem("orvio_device_id");
+      let latestCartItems = [...cartItems];
 
       if (transactionId && deviceId) {
-        await loadSessionCart(transactionId, true);
+        latestCartItems = await loadSessionCart(transactionId, true);
 
         const endResponse = await fetch(
           `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
@@ -348,9 +405,9 @@ export function ShoppingCartPage() {
         clearSessionExtensionState(transactionId);
       }
 
-      localStorage.setItem("purchaseItems", JSON.stringify(cartItems));
+      localStorage.setItem("purchaseItems", JSON.stringify(latestCartItems));
       localStorage.removeItem("orvio_transaction_id");
-      navigate("/completed", { replace: true });
+      navigate(latestCartItems.length > 0 ? "/completed" : "/no-items", { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to complete purchase.";
       setCompleteError(message);
@@ -423,161 +480,145 @@ export function ShoppingCartPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* Header with timer */}
-      <div className="px-6 pt-8 pb-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-gray-900">
+    <div className="min-h-screen bg-white flex justify-center">
+      <div className="w-full max-w-md min-h-screen flex flex-col">
+        <header className="px-5 pt-8 pb-5 flex items-center justify-between">
+          <h1 className="text-[clamp(1.25rem,3.2vw,1.75rem)] font-semibold text-[#101828]">
             Your Shopping Cart
           </h1>
-          <div className={`text-lg font-semibold px-3 py-1 rounded-lg ${
-            timeRemaining <= 10 
-              ? "bg-red-100 text-red-600" 
-              : "bg-blue-50 text-blue-600"
-          }`}>
+          <div
+            className={`rounded-lg px-3 py-1.5 font-semibold text-base leading-none ${
+              timeRemaining <= 10 ? "bg-red-100 text-red-600" : "bg-blue-50 text-blue-600"
+            }`}
+          >
             {formatTime(timeRemaining)}
           </div>
-        </div>
-      </div>
+        </header>
 
-      {/* Cart items list */}
-      <div className="flex-1 px-6 overflow-y-auto pb-4">
-        {isCartLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <p className="text-gray-400 text-center">
-              Loading cart...
-            </p>
-          </div>
-        ) : cartItems.length === 0 ? (
-          <div className="flex items-center justify-center h-64">
-            <p className="text-gray-400 text-center">
-              Your cart is empty
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {cartItems.map((item, index) => (
-              <div key={item.id}>
-                <div className="py-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <p className="text-base text-gray-900 font-medium flex-1">{item.name}</p>
+        <main className="flex-1 overflow-y-auto px-5 pb-4">
+          {isCartLoading ? (
+            <p className="py-12 text-center text-sm text-gray-500">Loading cart...</p>
+          ) : cartItems.length === 0 ? (
+            <p className="py-12 text-center text-sm text-gray-500">No products detected yet.</p>
+          ) : (
+            cartItems.map((item) => (
+              <div key={item.id} className="py-4 border-b border-[#f3f4f6] last:border-b-0">
+                <p className="text-base font-medium text-[#101828]">{item.name}</p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-base font-medium text-[#364153] min-w-8">{item.quantity}x</span>
+                    <button
+                      onClick={() => handleDecreaseItem(item.id)}
+                      disabled={
+                        updatingItemId === item.id ||
+                        isCompletingPurchase ||
+                        isCancellingSession
+                      }
+                      aria-label={`Decrease ${item.name}`}
+                      className="w-11 h-11 rounded-full bg-[#f3f4f6] text-xl text-[#364153] disabled:opacity-50"
+                    >
+                      -
+                    </button>
+                    <button
+                      onClick={() => handleIncreaseItem(item.id)}
+                      disabled={
+                        updatingItemId === item.id ||
+                        isCompletingPurchase ||
+                        isCancellingSession
+                      }
+                      aria-label={`Increase ${item.name}`}
+                      className="w-11 h-11 rounded-full bg-[#f3f4f6] text-xl text-[#364153] disabled:opacity-50"
+                    >
+                      +
+                    </button>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="text-base text-gray-700 font-medium min-w-[32px]">
-                        {item.quantity}x
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-500">
-                        ${item.unitPrice.toFixed(2)} each
-                      </p>
-                      <p className="text-base text-gray-900 mt-1 font-semibold">
-                        ${(item.quantity * item.unitPrice).toFixed(2)}
-                      </p>
-                    </div>
+                  <div className="text-right">
+                    <p className="text-sm text-[#6a7282]">${item.unitPrice.toFixed(2)} each</p>
+                    <p className="text-xl font-semibold text-[#101828]">
+                      ${(item.quantity * item.unitPrice).toFixed(2)}
+                    </p>
                   </div>
                 </div>
-                {index < cartItems.length - 1 && (
-                  <div className="h-px bg-gray-100" />
-                )}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+            ))
+          )}
+        </main>
 
-      {/* Summary section */}
-      <div className="px-6 pb-6 pt-4 border-t border-gray-100">
-        <div className="bg-gray-50 rounded-2xl p-4 mb-4">
-          <div className="flex items-center justify-between">
-            <span className="text-lg text-gray-900 font-semibold">Total</span>
-            <span className="text-2xl font-bold text-gray-900">
+        <footer className="border-t border-[#f3f4f6] px-5 pt-4 pb-6 space-y-4">
+          <div className="bg-[#f9fafb] rounded-2xl px-4 py-4 flex items-center justify-between">
+            <span className="text-[1.125rem] font-semibold text-[#101828]">Total</span>
+            <span className="text-[2rem] leading-none font-bold text-[#101828]">
               ${getTotalPrice().toFixed(2)}
             </span>
           </div>
-        </div>
 
-        <button
-          onClick={handleCompletePurchase}
-          disabled={cartItems.length === 0 || isCompletingPurchase || isCancellingSession}
-          className="w-full min-h-[56px] bg-blue-500 hover:bg-blue-600 active:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
-        >
-          {isCompletingPurchase ? "Completing Purchase..." : "Complete & Confirm Purchase"}
-        </button>
-        {completeError && (
-          <p className="text-sm text-red-600 text-center leading-relaxed mt-3">
-            {completeError}
-          </p>
-        )}
-
-        {/* Support text */}
-        <p className="text-center text-sm text-gray-600 mt-4">
-          Need more help?{" "}
-          <a
-            href="#contact"
-            className="text-blue-700 hover:text-blue-800 underline"
+          <button
+            onClick={handleCompletePurchase}
+            disabled={isCompletingPurchase || isCancellingSession || isCartLoading}
+            className="w-full min-h-14 rounded-2xl bg-[#2b7fff] text-white text-lg font-medium disabled:bg-gray-300"
           >
-            Contact us
-          </a>
-        </p>
-      </div>
+            {isCompletingPurchase ? "Completing Purchase..." : "Complete & Confirm Purchase"}
+          </button>
 
-      {/* Session Expiration Modal */}
-      {showExpirationModal && (
-        <div className="fixed inset-0 flex items-center justify-center px-6 z-50">
-          {/* Blurred background overlay */}
-          <div className="absolute inset-0 backdrop-blur-md bg-black/20" />
-          
-          {/* Modal card */}
-          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative z-10">
-            <div className="text-center space-y-6">
-              <h2 className="text-2xl font-semibold text-gray-900">
-                Session Time Expired
-              </h2>
-              <p className="text-lg text-gray-600">
-                Would you like to complete your purchase?
-              </p>
-              
-              {/* Auto-complete countdown */}
-              <div className="bg-gray-50 rounded-xl p-4">
-                <p className="text-sm text-gray-600 mb-2">
-                  Auto-completing in
-                </p>
-                <p className="text-3xl font-bold text-blue-600">
-                  {autoCompleteCountdown}s
-                </p>
+          {completeError && (
+            <p className="text-sm text-center text-red-600">{completeError}</p>
+          )}
+
+          <p className="text-center text-sm text-[#4a5565]">
+            Need more help?{" "}
+            <button
+              onClick={handleCancelSession}
+              disabled={isCancellingSession || isCompletingPurchase}
+              className="text-[#1447e6] underline disabled:opacity-60"
+            >
+              Contact us
+            </button>
+          </p>
+        </footer>
+
+        {showExpirationModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center px-5">
+            <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" />
+            <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+              <h2 className="text-xl font-semibold text-[#101828] text-center">Session Time Expired</h2>
+              <p className="mt-2 text-center text-[#4a5565]">Would you like to complete your purchase?</p>
+
+              <div className="mt-4 rounded-xl bg-gray-50 p-4 text-center">
+                <p className="text-sm text-gray-600">Auto-completing in</p>
+                <p className="text-3xl font-bold text-blue-600">{autoCompleteCountdown}s</p>
               </div>
 
-              {/* Action buttons */}
-              <div className="space-y-3 pt-2">
+              <div className="mt-4 space-y-3">
                 {!hasUsedOneTimeExtension && (
                   <button
                     onClick={handleExtendSessionOnce}
                     disabled={isCancellingSession || isCompletingPurchase}
-                    className="w-full min-h-[56px] bg-amber-400 hover:bg-amber-500 active:bg-amber-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-amber-950 font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
+                    className="w-full min-h-14 rounded-2xl bg-amber-400 text-amber-950 font-medium disabled:bg-gray-300"
                   >
-                    Add 30 Seconds (One Time)
+                    Add 120 Seconds (One Time)
                   </button>
                 )}
+
                 <button
                   onClick={handleCompletePurchase}
-                  className="w-full min-h-[56px] bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
+                  disabled={isCompletingPurchase}
+                  className="w-full min-h-14 rounded-2xl bg-[#2b7fff] text-white font-medium disabled:bg-gray-300"
                 >
                   Complete Purchase
                 </button>
+
                 <button
                   onClick={handleCancelSession}
                   disabled={isCancellingSession || isCompletingPurchase}
-                  className="w-full min-h-[56px] bg-white hover:bg-gray-50 active:bg-gray-100 text-gray-700 font-medium py-4 px-6 rounded-2xl border-2 border-gray-300 transition-colors duration-200 text-lg touch-manipulation"
+                  className="w-full min-h-14 rounded-2xl border border-gray-300 text-gray-700 font-medium disabled:opacity-60"
                 >
                   {isCancellingSession ? "Cancelling Session..." : "Cancel Session"}
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

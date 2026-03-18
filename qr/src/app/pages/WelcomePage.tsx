@@ -5,7 +5,6 @@ import { FridgeIcon } from "../components/FridgeIcon";
 export function WelcomePage() {
   const navigate = useNavigate();
   const { device_id } = useParams();
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isStartingSession, setIsStartingSession] = useState(false);
 
   const getBaseUrl = () => {
@@ -18,11 +17,10 @@ export function WelcomePage() {
 
   const handleStartSession = async () => {
     if (!device_id) {
-      setErrorMessage("Device ID is missing from the URL.");
+      console.error("Device ID is missing from the URL.");
       return;
     }
 
-    setErrorMessage(null);
     setIsStartingSession(true);
 
     try {
@@ -58,7 +56,7 @@ export function WelcomePage() {
       navigate("/cart", { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to start session.";
-      setErrorMessage(message);
+      console.error(message);
     } finally {
       setIsStartingSession(false);
     }
@@ -100,13 +98,8 @@ export function WelcomePage() {
           disabled={isStartingSession}
           className="w-full min-h-[56px] bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-medium py-4 px-6 rounded-2xl shadow-sm transition-colors duration-200 text-lg touch-manipulation"
         >
-          {isStartingSession ? "Starting Session..." : "Start Session"}
+          Start Session
         </button>
-        {errorMessage && (
-          <p className="text-sm text-red-600 text-center leading-relaxed mt-3">
-            {errorMessage}
-          </p>
-        )}
         
         {/* Disclaimer */}
         <p className="text-xs text-gray-400 text-center leading-relaxed mt-4">

@@ -9,9 +9,7 @@ export function FeedbackPage() {
   };
 
   const handleContactUs = () => {
-    // In a real app, this would open a contact form or email
-    // For now, we'll just show an alert or navigate
-    alert("Contact form would open here");
+    window.location.href = "mailto:support@orvio.app";
   };
 
   return (
