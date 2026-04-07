@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
 
 interface CartItem {
@@ -18,6 +18,7 @@ interface CartApiItem {
 const SESSION_DURATION_SECONDS = 120;
 const ONE_TIME_EXTENSION_SECONDS = 120;
 const AUTO_COMPLETE_SECONDS = 10;
+const SESSION_STATE_SYNC_INTERVAL_MS = 5000;
 
 export function ShoppingCartPage() {
   const navigate = useNavigate();
@@ -36,6 +37,7 @@ export function ShoppingCartPage() {
   const [showExpirationModal, setShowExpirationModal] = useState(false);
   const [autoCompleteCountdown, setAutoCompleteCountdown] = useState(AUTO_COMPLETE_SECONDS);
   const [hasUsedOneTimeExtension, setHasUsedOneTimeExtension] = useState(false);
+  const hasRedirectedToFeedbackRef = useRef(false);
 
   const getBaseUrl = () => {
     const url = import.meta.env.VITE_BACKEND_URL;
@@ -61,6 +63,20 @@ export function ShoppingCartPage() {
     localStorage.removeItem(getExtensionUsedStorageKey(transactionId));
     localStorage.removeItem(getSessionEndsAtStorageKey(transactionId));
   };
+
+  const redirectToMissedYou = useCallback(() => {
+    if (hasRedirectedToFeedbackRef.current) {
+      return;
+    }
+
+    hasRedirectedToFeedbackRef.current = true;
+    const transactionId = localStorage.getItem("orvio_transaction_id");
+    if (transactionId) {
+      clearSessionExtensionState(transactionId);
+    }
+    localStorage.removeItem("orvio_transaction_id");
+    navigate("/feedback", { replace: true });
+  }, [navigate]);
 
   const mapCartItems = (items: CartApiItem[]): CartItem[] => {
     return items.map((item) => ({
@@ -101,6 +117,44 @@ export function ShoppingCartPage() {
     setIsCartLoading(false);
     return nextCartItems;
   };
+
+  const syncSessionStateWithBackend = useCallback(async () => {
+    if (isCompletingPurchase || isCancellingSession) {
+      return;
+    }
+
+    const deviceId = localStorage.getItem("orvio_device_id");
+    const transactionId = localStorage.getItem("orvio_transaction_id");
+
+    if (!deviceId || !transactionId) {
+      return;
+    }
+
+    const response = await fetch(
+      `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      has_active_session?: boolean;
+      transaction_id?: string | null;
+      error?: string;
+      message?: string;
+    };
+
+    if (!response.ok) {
+      throw new Error(payload.message || payload.error || "Failed to sync session state.");
+    }
+
+    const backendTransactionId = payload.transaction_id || null;
+    const isActiveForCurrentTransaction =
+      payload.has_active_session === true &&
+      backendTransactionId !== null &&
+      backendTransactionId === transactionId;
+
+    if (!isActiveForCurrentTransaction) {
+      redirectToMissedYou();
+    }
+  }, [isCancellingSession, isCompletingPurchase, redirectToMissedYou]);
 
   const adjustCartItemQuantity = async (productId: string, delta: number) => {
     const transactionId = localStorage.getItem("orvio_transaction_id");
@@ -268,6 +322,36 @@ export function ShoppingCartPage() {
       clearInterval(pollTimer);
     };
   }, [activeTransactionId]);
+
+  useEffect(() => {
+    const runSync = () => {
+      void syncSessionStateWithBackend().catch((error) => {
+        if (hasRedirectedToFeedbackRef.current) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : "Failed to sync session state.";
+        setCompleteError(message);
+      });
+    };
+
+    runSync();
+
+    const intervalId = setInterval(runSync, SESSION_STATE_SYNC_INTERVAL_MS);
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        runSync();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityOrFocus);
+    window.addEventListener("focus", onVisibilityOrFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityOrFocus);
+      window.removeEventListener("focus", onVisibilityOrFocus);
+    };
+  }, [syncSessionStateWithBackend]);
 
   useEffect(() => {
     if (sessionEndsAtMs === null) {
