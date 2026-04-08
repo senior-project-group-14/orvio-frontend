@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { MoreVertical, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 export interface FridgeData {
   id: string;
@@ -8,6 +9,7 @@ export interface FridgeData {
   status: 'online' | 'offline';
   door: 'open' | 'closed';
   lastActive: string;
+  temperature?: string;
 }
 
 interface FridgeListTableProps {
@@ -16,6 +18,8 @@ interface FridgeListTableProps {
   locationFilter: string;
   onClearFilters: () => void;
   onViewFridge: (fridgeId: string) => void;
+  onEditFridge: (fridgeId: string) => void;
+  onDeleteFridge: (fridgeId: string) => void;
   fridges: FridgeData[];
 }
 
@@ -25,10 +29,59 @@ export default function FridgeListTable({
   locationFilter,
   onClearFilters,
   onViewFridge,
+  onEditFridge,
+  onDeleteFridge,
   fridges,
 }: FridgeListTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [openActionMenuFor, setOpenActionMenuFor] = useState<string | null>(null);
+  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const clickedTrigger = event.target.closest('[data-fridge-actions-trigger="true"]');
+      if (clickedTrigger) return;
+      if (actionMenuRef.current && !actionMenuRef.current.contains(event.target)) {
+        setOpenActionMenuFor(null);
+        setActionMenuPosition(null);
+      }
+    };
+
+    const closeMenuOnViewportChange = () => {
+      setOpenActionMenuFor(null);
+      setActionMenuPosition(null);
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    window.addEventListener('resize', closeMenuOnViewportChange);
+    window.addEventListener('scroll', closeMenuOnViewportChange, true);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+      window.removeEventListener('resize', closeMenuOnViewportChange);
+      window.removeEventListener('scroll', closeMenuOnViewportChange, true);
+    };
+  }, []);
+
+  const openActionMenu = (fridgeId: string, target: HTMLButtonElement) => {
+    const menuWidth = 168;
+    const menuHeight = 96;
+    const margin = 8;
+    const rect = target.getBoundingClientRect();
+
+    const left = Math.min(
+      window.innerWidth - menuWidth - margin,
+      Math.max(margin, rect.right - menuWidth)
+    );
+
+    const hasEnoughSpaceBelow = window.innerHeight - rect.bottom > menuHeight + margin;
+    const top = hasEnoughSpaceBelow ? rect.bottom + margin : rect.top - menuHeight - margin;
+
+    setOpenActionMenuFor(fridgeId);
+    setActionMenuPosition({ top: Math.max(margin, top), left });
+  };
 
   // Filter fridges
   const filteredFridges = fridges.filter((fridge) => {
@@ -207,7 +260,7 @@ export default function FridgeListTable({
                   {fridge.lastActive}
                 </td>
                 <td data-export-hide style={{ padding: '16px 8px' }}>
-                  <div className="flex items-center justify-center gap-2">
+                  <div className="flex items-center justify-center gap-2" style={{ position: 'relative' }}>
                     <button
                       className="transition-colors hover:underline"
                       style={{
@@ -223,6 +276,7 @@ export default function FridgeListTable({
                       View
                     </button>
                     <button
+                      data-fridge-actions-trigger="true"
                       className="transition-colors hover:bg-gray-100 rounded p-1"
                       style={{
                         background: 'none',
@@ -230,7 +284,16 @@ export default function FridgeListTable({
                         color: '#6B7280',
                         cursor: 'pointer'
                       }}
-                      onClick={() => alert(`More options for ${fridge.name}`)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (openActionMenuFor === fridge.id) {
+                          setOpenActionMenuFor(null);
+                          setActionMenuPosition(null);
+                          return;
+                        }
+                        openActionMenu(fridge.id, event.currentTarget);
+                      }}
+                      aria-label={`Actions for ${fridge.name}`}
                     >
                       <MoreVertical size={16} />
                     </button>
@@ -353,6 +416,92 @@ export default function FridgeListTable({
           Page {currentPage} of {totalPages}
         </span>
       </div>
+
+      {openActionMenuFor && actionMenuPosition && createPortal(
+        <div
+          ref={actionMenuRef}
+          style={{
+            position: 'fixed',
+            top: `${actionMenuPosition.top}px`,
+            left: `${actionMenuPosition.left}px`,
+            width: '168px',
+            backgroundColor: '#FFFFFF',
+            border: '1px solid #E5E7EB',
+            borderRadius: '10px',
+            boxShadow: '0 14px 28px rgba(0, 0, 0, 0.12)',
+            padding: '6px',
+            zIndex: 1400,
+          }}
+        >
+          <button
+            onClick={() => {
+              const targetId = openActionMenuFor;
+              setOpenActionMenuFor(null);
+              setActionMenuPosition(null);
+              onEditFridge(targetId);
+            }}
+            className="transition-colors hover:bg-gray-100"
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#F3F4F6';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+            }}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              border: 'none',
+              background: 'transparent',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '14px',
+              color: '#1A1C1E',
+              cursor: 'pointer',
+              fontWeight: 500,
+              transition: 'background-color 150ms ease',
+            }}
+          >
+            <span className="flex items-center gap-3">
+              <Pencil size={18} style={{ color: '#6B7280' }} />
+              <span>Edit Fridge</span>
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              const targetId = openActionMenuFor;
+              setOpenActionMenuFor(null);
+              setActionMenuPosition(null);
+              onDeleteFridge(targetId);
+            }}
+            className="transition-colors hover:bg-red-50"
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#fee2e2';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent';
+            }}
+            style={{
+              width: '100%',
+              textAlign: 'left',
+              border: 'none',
+              background: 'transparent',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '14px',
+              color: '#DC2626',
+              cursor: 'pointer',
+              fontWeight: 500,
+              transition: 'background-color 150ms ease',
+            }}
+          >
+            <span className="flex items-center gap-3">
+              <Trash2 size={18} style={{ color: '#DC2626' }} />
+              <span>Delete Fridge</span>
+            </span>
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

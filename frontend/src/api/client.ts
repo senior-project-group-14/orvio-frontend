@@ -200,6 +200,18 @@ export interface CreateSysadminDevicePayload {
   status_id?: number;
 }
 
+export interface UpdateSysadminDevicePayload {
+  name?: string;
+  location_description?: string;
+  gps_latitude?: number;
+  gps_longitude?: number;
+  default_temperature?: number;
+  assigned_admin_id?: string;
+  shelf_count?: number;
+  session_limit?: number;
+  status_id?: number;
+}
+
 export interface BrandItem {
   brand_id: string;
   brand_name: string;
@@ -341,6 +353,19 @@ export async function createSysadminDevice(payload: CreateSysadminDevicePayload)
   return apiRequest<SysadminDevice>('/devices', {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSysadminDevice(deviceId: string, payload: UpdateSysadminDevicePayload): Promise<SysadminDevice> {
+  return apiRequest<SysadminDevice>(`/devices/${deviceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSysadminDevice(deviceId: string): Promise<{ message: string; device_id: string }> {
+  return apiRequest<{ message: string; device_id: string }>(`/devices/${deviceId}`, {
+    method: 'DELETE',
   });
 }
 
