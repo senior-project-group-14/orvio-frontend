@@ -1,14 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
-import { Search, Plus } from 'lucide-react';
+import { Search, Plus, AlertTriangle } from 'lucide-react';
 import FridgeListTable, { FridgeData } from './FridgeListTable';
 import { ExportButton } from './ui/export-button';
 import { TableSkeleton } from './ui/table-skeleton';
-import { getAdminDevices } from '../api/client';
+import { deleteSysadminDevice, getAdminDevices, updateSysadminDevice } from '../api/client';
 import { formatRelativeTime } from '../utils/time';
 import { exportData } from '../utils/export';
 import AddFridgeModal from './AddFridgeModal';
+import EditFridgeModal from './EditFridgeModal';
 
 interface FridgeListProps {
   onLogout: () => void;
@@ -29,6 +30,11 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
   const [isLoading, setIsLoading] = useState(true);
   const [fridges, setFridges] = useState<FridgeData[]>([]);
   const [showAddFridgeModal, setShowAddFridgeModal] = useState(false);
+  const [showEditFridgeModal, setShowEditFridgeModal] = useState(false);
+  const [editingFridge, setEditingFridge] = useState<FridgeData | null>(null);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [deletingFridge, setDeletingFridge] = useState<FridgeData | null>(null);
+  const [isDeletingFridge, setIsDeletingFridge] = useState(false);
 
   const loadFridges = useCallback(async () => {
     setIsLoading(true);
@@ -40,8 +46,12 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
         name: device.name || 'Unnamed fridge',
         location: device.location_description || 'Unknown location',
         status: normalizeStatus(device.status),
-        door: device.door_status ? 'open' : 'closed',
+        door: device.door_status ? ('open' as const) : ('closed' as const),
         lastActive: formatRelativeTime(device.last_checkin_time || null),
+        temperature:
+          device.default_temperature !== undefined && device.default_temperature !== null
+            ? String(device.default_temperature)
+            : undefined,
       }));
       setFridges(mapped);
     } catch (error) {
@@ -78,6 +88,52 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
         filename: 'fridge-list',
         title: 'Fridge List'
       });
+    }
+  };
+
+  const handleOpenEdit = (fridgeId: string) => {
+    const fridge = fridges.find((item) => item.id === fridgeId) || null;
+    setEditingFridge(fridge);
+    setShowEditFridgeModal(Boolean(fridge));
+  };
+
+  const handleSaveEdit = async (data: { name: string; location: string; temperature?: string }) => {
+    if (!editingFridge) return;
+
+    const parsedTemperature = data.temperature?.trim() ? Number(data.temperature) : undefined;
+
+    await updateSysadminDevice(editingFridge.id, {
+      name: data.name.trim(),
+      location_description: data.location.trim(),
+      default_temperature:
+        parsedTemperature !== undefined && Number.isFinite(parsedTemperature)
+          ? parsedTemperature
+          : undefined,
+    });
+
+    await loadFridges();
+  };
+
+  const handleOpenDeleteConfirm = (fridgeId: string) => {
+    const fridge = fridges.find((item) => item.id === fridgeId) || null;
+    setDeletingFridge(fridge);
+    setShowDeleteConfirmModal(Boolean(fridge));
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingFridge) return;
+
+    setIsDeletingFridge(true);
+    try {
+      await deleteSysadminDevice(deletingFridge.id);
+      setShowDeleteConfirmModal(false);
+      setDeletingFridge(null);
+      await loadFridges();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete fridge';
+      alert(message);
+    } finally {
+      setIsDeletingFridge(false);
     }
   };
 
@@ -207,6 +263,8 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
                 locationFilter={locationFilter}
                 onClearFilters={handleClearFilters}
                 onViewFridge={onViewFridge}
+                onEditFridge={handleOpenEdit}
+                onDeleteFridge={handleOpenDeleteConfirm}
                 fridges={fridges}
               />
             )}
@@ -226,6 +284,164 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
         onClose={() => setShowAddFridgeModal(false)}
         onCreated={loadFridges}
       />
+
+      <EditFridgeModal
+        isOpen={showEditFridgeModal && Boolean(editingFridge)}
+        onClose={() => {
+          setShowEditFridgeModal(false);
+          setEditingFridge(null);
+        }}
+        fridgeId={editingFridge?.id || ''}
+        initialData={
+          editingFridge
+            ? {
+                name: editingFridge.name,
+                location: editingFridge.location,
+                temperature: editingFridge.temperature,
+              }
+            : undefined
+        }
+        onSave={handleSaveEdit}
+      />
+
+      {showDeleteConfirmModal && deletingFridge && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{
+            backgroundColor: 'rgba(0, 0, 0, 0.4)',
+            animation: 'overlayFadeIn 200ms ease-out',
+          }}
+          onClick={() => {
+            if (isDeletingFridge) return;
+            setShowDeleteConfirmModal(false);
+            setDeletingFridge(null);
+          }}
+        >
+          <div
+            className="bg-white"
+            style={{
+              width: '440px',
+              maxWidth: '90vw',
+              borderRadius: '12px',
+              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.15)',
+              animation: 'modalSlideIn 250ms cubic-bezier(0.16, 1, 0.3, 1)',
+              overflow: 'hidden',
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* Content Area */}
+            <div style={{ padding: '24px 24px 0 24px' }}>
+              {/* Warning Icon */}
+              <div
+                style={{
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '28px',
+                  backgroundColor: '#fee2e2',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '16px',
+                }}
+              >
+                <AlertTriangle size={28} style={{ color: '#dc2626' }} />
+              </div>
+
+              {/* Heading */}
+              <h2 style={{ fontSize: '20px', fontWeight: 600, color: '#1A1C1E', margin: 0, marginBottom: '8px' }}>
+                Delete Fridge?
+              </h2>
+
+              {/* Main Message */}
+              <p style={{ fontSize: '14px', color: '#6B7280', margin: 0, marginBottom: '8px', lineHeight: '1.6' }}>
+                You are about to delete <strong style={{ color: '#1A1C1E', fontWeight: 600 }}>{deletingFridge.name}</strong> ({deletingFridge.id}).
+              </p>
+
+              {/* Warning Text */}
+              <p style={{ fontSize: '14px', color: '#dc2626', margin: 0, marginBottom: '24px', fontWeight: 500 }}>
+                This action cannot be undone.
+              </p>
+            </div>
+
+            {/* Button Area */}
+            <div
+              style={{
+                padding: '0 24px 24px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '12px',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteConfirmModal(false);
+                  setDeletingFridge(null);
+                }}
+                disabled={isDeletingFridge}
+                className="transition-all hover:bg-gray-100"
+                style={{
+                  height: '40px',
+                  padding: '0 20px',
+                  backgroundColor: 'transparent',
+                  color: '#6B7280',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  cursor: isDeletingFridge ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleConfirmDelete();
+                }}
+                disabled={isDeletingFridge}
+                className="transition-all hover:bg-red-700"
+                style={{
+                  height: '40px',
+                  padding: '0 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#DC2626',
+                  color: '#FFFFFF',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: isDeletingFridge ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isDeletingFridge ? 'Deleting...' : 'Delete Fridge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes overlayFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes modalSlideIn {
+          from {
+            opacity: 0;
+            transform: scale(0.95) translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+          }
+        }
+      `}</style>
     </div>
   );
 }
