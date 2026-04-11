@@ -6,7 +6,7 @@ import { EmptyState } from './ui/empty-state';
 import { TableSkeleton } from './ui/table-skeleton';
 import { getAdminDevices, getDeviceAlerts, updateAlert } from '../api/client';
 import { formatDateTime, formatRelativeTime } from '../utils/time';
-import { ALERT_STATUS, ALERT_STATUS_NAMES } from '../utils/constants';
+import { ALERT_STATUS } from '../utils/constants';
 
 interface AlertsScreenProps {
   onLogout: () => void;

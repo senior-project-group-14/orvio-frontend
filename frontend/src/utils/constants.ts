@@ -7,6 +7,7 @@ export const ALERT_STATUS = {
   OPEN: 0,
   RESOLVED: 1,
   ACKNOWLEDGED: 2,
+  READ: 3,
 } as const;
 
 export const DEVICE_STATUS = {
@@ -61,6 +62,7 @@ export const ALERT_STATUS_NAMES: Record<number, string> = {
   [ALERT_STATUS.OPEN]: 'Open',
   [ALERT_STATUS.RESOLVED]: 'Resolved',
   [ALERT_STATUS.ACKNOWLEDGED]: 'Acknowledged',
+  [ALERT_STATUS.READ]: 'Open',
 };
 
 export const DEVICE_STATUS_NAMES: Record<number, string> = {

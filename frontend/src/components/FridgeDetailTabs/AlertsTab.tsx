@@ -121,6 +121,8 @@ export default function AlertsTab({ fridgeId, isLoading = false }: AlertsTabProp
     return '#DC2626';
   };
 
+  const isOpenLikeStatus = (statusId: number) => statusId === ALERT_STATUS.OPEN || statusId === ALERT_STATUS.READ;
+
   if (alerts.length === 0 && !isLoading && !isFetching) {
     return (
       <div className="bg-white flex flex-col items-center justify-center" style={{ minHeight: '400px', borderRadius: '12px', boxShadow: '0 3px 8px rgba(0,0,0,0.05)', padding: '40px' }}>
@@ -165,7 +167,7 @@ export default function AlertsTab({ fridgeId, isLoading = false }: AlertsTabProp
                 </td>
                 <td style={{ padding: '16px 8px', textAlign: 'center' }}>
                   <div className="flex items-center justify-center gap-2">
-                    {alert.status_id === ALERT_STATUS.OPEN && (
+                    {isOpenLikeStatus(alert.status_id) && (
                       <>
                         <button className="transition-colors hover:underline" style={{ background: 'none', border: 'none', color: '#2563EB', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }} onClick={() => handleUpdateAlert(alert.id, ALERT_STATUS.ACKNOWLEDGED)}>Acknowledge</button>
                         <span style={{ color: '#D1D5DB' }}>|</span>

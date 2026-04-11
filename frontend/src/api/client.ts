@@ -123,6 +123,11 @@ export interface DeviceAlert {
   resolution_note?: string | null;
 }
 
+export interface AdminAlertRead {
+  alert_id: string;
+  read_at: string;
+}
+
 export interface DeviceTelemetry {
   telemetry_id: string;
   device_id: string;
@@ -335,6 +340,19 @@ export async function updateAlert(
   });
 }
 
+export async function markAlertRead(alertId: string): Promise<AdminAlertRead> {
+  return apiRequest<AdminAlertRead>(`/alerts/${alertId}/read`, {
+    method: 'POST',
+  });
+}
+
+export async function getAlertReads(alertIds: string[]): Promise<AdminAlertRead[]> {
+  if (alertIds.length === 0) return [];
+  const query = buildQuery({ alert_ids: alertIds.join(',') });
+  const response = await apiRequest<{ data: AdminAlertRead[] }>(`/alerts/reads${query}`);
+  return response.data;
+}
+
 export async function getSysadminAdmins(pagination?: PaginationParams): Promise<PaginatedResponse<SysadminAdmin>> {
   const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
   return apiRequest<PaginatedResponse<SysadminAdmin>>(`/admins${query}`);
@@ -504,6 +522,16 @@ export function setCurrentUserRole(role: string | number): void {
   localStorage.setItem('orvio_user_role', String(role));
 }
 
+/** Store current user id after login. */
+export function setCurrentUserId(userId: string): void {
+  localStorage.setItem('orvio_user_id', userId);
+}
+
+/** Get current user id from storage. */
+export function getCurrentUserId(): string | null {
+  return localStorage.getItem('orvio_user_id');
+}
+
 /** Get current user role from storage. */
 export function getCurrentUserRole(): string | null {
   return localStorage.getItem('orvio_user_role');
@@ -513,4 +541,5 @@ export function getCurrentUserRole(): string | null {
 export function clearToken(): void {
   localStorage.removeItem('orvio_token');
   localStorage.removeItem('orvio_user_role');
+  localStorage.removeItem('orvio_user_id');
 }
