@@ -6,12 +6,7 @@ import RecentActivity from './RecentActivity';
 import ConsumptionChart from './ConsumptionChart';
 import { useState, useEffect } from 'react';
 import {
-  getAdminDevices,
-  getDeviceAlerts,
-  getDeviceTransactions,
-  AdminDevice,
-  DeviceAlert,
-  DeviceTransaction,
+  getDashboardSummary,
 } from '../api/client';
 import { formatRelativeTime, formatTime } from '../utils/time';
 
@@ -43,14 +38,6 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
   const [recentActivity, setRecentActivity] = useState<DashboardActivity[] | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyActivity[] | null>(null);
 
-  const getDeviceLabel = (device: AdminDevice) => device.name || device.device_id;
-
-  const isOnlineStatus = (status?: string | null) => {
-    if (!status) return false;
-    const normalized = status.toLowerCase();
-    return normalized.includes('online') || normalized.includes('active');
-  };
-
   const getSeverity = (alertType?: string | null): 'High' | 'Medium' | 'Low' => {
     const normalized = (alertType || '').toLowerCase();
     if (normalized.includes('temperature') || normalized.includes('door')) return 'High';
@@ -58,8 +45,7 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
     return 'Low';
   };
 
-  const getActionLabel = (transaction: DeviceTransaction): 'Take' | 'Return' => {
-    const actionType = transaction.items?.[0]?.action_type || transaction.transaction_type;
+  const getActionLabel = (actionType?: string | null): 'Take' | 'Return' => {
     if (actionType && actionType.toLowerCase().includes('return')) return 'Return';
     return 'Take';
   };
@@ -70,75 +56,25 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
     const loadDashboard = async () => {
       setIsLoading(true);
       try {
-        const devicesResponse = await getAdminDevices({ limit: 100 });
-        const devices = devicesResponse.data;
-        const deviceNameMap = new Map(devices.map((device) => [device.device_id, getDeviceLabel(device)]));
+        const dashboardSummary = await getDashboardSummary();
 
-        const alertsResults = await Promise.all(
-          devices.map((device) => getDeviceAlerts(device.device_id, undefined, { limit: 100 }).then(r => r.data).catch(() => [] as DeviceAlert[]))
-        );
-        const allAlerts = alertsResults.flat();
+        const nextStats = dashboardSummary.stats;
 
-        const transactionsResults = await Promise.all(
-          devices.map((device) => getDeviceTransactions(device.device_id, { limit: 50 }).then(r => r.data).catch(() => [] as DeviceTransaction[]))
-        );
-        const allTransactions = transactionsResults.flat();
+        const nextRecentAlerts = dashboardSummary.recentAlerts.map((alert) => ({
+          type: alert.alert_type,
+          fridge: alert.fridge,
+          severity: getSeverity(alert.alert_type),
+          time: formatRelativeTime(alert.timestamp),
+        }));
 
-        const today = new Date();
-        const todayKey = today.toDateString();
-        const activeSessions = allTransactions.filter((txn) => {
-          const txnDate = new Date(txn.start_time);
-          return !Number.isNaN(txnDate.getTime()) && txnDate.toDateString() === todayKey;
-        }).length;
+        const nextRecentActivity = dashboardSummary.recentActivity.map((activity) => ({
+          time: formatTime(activity.start_time),
+          fridge: activity.fridge,
+          action: getActionLabel(activity.action_type),
+          count: `${activity.item_count || 1} items`,
+        }));
 
-        const nextStats = {
-          totalFridges: devices.length,
-          onlineFridges: devices.filter((device) => isOnlineStatus(device.status)).length,
-          activeSessions,
-          totalAlerts: allAlerts.length,
-        };
-
-        const nextRecentAlerts = allAlerts
-          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-          .slice(0, 5)
-          .map((alert) => ({
-            type: alert.alert_type,
-            fridge: deviceNameMap.get(alert.device_id) || alert.device_id,
-            severity: getSeverity(alert.alert_type),
-            time: formatRelativeTime(alert.timestamp),
-          }));
-
-        const nextRecentActivity = allTransactions
-          .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-          .slice(0, 6)
-          .map((txn) => {
-            const items = txn.items || [];
-            const totalItems = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-            return {
-              time: formatTime(txn.start_time),
-              fridge: deviceNameMap.get(txn.device_id) || txn.device_id,
-              action: getActionLabel(txn),
-              count: `${totalItems || items.length || 1} items`,
-            };
-          });
-
-        const days = Array.from({ length: 7 }, (_, index) => {
-          const date = new Date();
-          date.setDate(date.getDate() - (6 - index));
-          return date;
-        });
-
-        const nextWeeklyData = days.map((date) => {
-          const dayKey = date.toDateString();
-          const sessions = allTransactions.filter((txn) => {
-            const txnDate = new Date(txn.start_time);
-            return !Number.isNaN(txnDate.getTime()) && txnDate.toDateString() === dayKey;
-          }).length;
-          return {
-            day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-            sessions,
-          };
-        });
+        const nextWeeklyData = dashboardSummary.weeklyData;
 
         if (!isMounted) return;
         setStats(nextStats);
