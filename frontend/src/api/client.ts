@@ -158,6 +158,32 @@ export interface DeviceTransaction {
   items?: TransactionItem[] | null;
 }
 
+export interface DashboardSummaryResponse {
+  stats: {
+    totalFridges: number;
+    onlineFridges: number;
+    activeSessions: number;
+    totalAlerts: number;
+  };
+  recentAlerts: Array<{
+    device_id: string;
+    fridge: string;
+    alert_type: string;
+    timestamp: string;
+  }>;
+  recentActivity: Array<{
+    device_id: string;
+    fridge: string;
+    start_time: string;
+    action_type?: string | null;
+    item_count: number;
+  }>;
+  weeklyData: Array<{
+    day: string;
+    sessions: number;
+  }>;
+}
+
 export interface SysadminAdmin {
   user_id: string;
   first_name?: string | null;
@@ -291,6 +317,10 @@ export async function getDeviceInventory(deviceId: string, pagination?: Paginati
 export async function getDeviceTransactions(deviceId: string, pagination?: PaginationParams): Promise<PaginatedResponse<DeviceTransaction>> {
   const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
   return apiRequest<PaginatedResponse<DeviceTransaction>>(`/devices/${deviceId}/transactions${query}`);
+}
+
+export async function getDashboardSummary(): Promise<DashboardSummaryResponse> {
+  return apiRequest<DashboardSummaryResponse>('/devices/dashboard/summary');
 }
 
 export async function updateAlert(
