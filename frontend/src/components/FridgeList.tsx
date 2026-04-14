@@ -5,7 +5,7 @@ import { Search, Plus, AlertTriangle } from 'lucide-react';
 import FridgeListTable, { FridgeData } from './FridgeListTable';
 import { ExportButton } from './ui/export-button';
 import { TableSkeleton } from './ui/table-skeleton';
-import { deleteSysadminDevice, getAdminDevices, updateSysadminDevice } from '../api/client';
+import { deleteSysadminDevice, getAdminDevices, updateSysadminDevice, getSysadminAssignments, createSysadminAssignment, updateSysadminAssignment } from '../api/client';
 import { formatRelativeTime } from '../utils/time';
 import { exportData } from '../utils/export';
 import AddFridgeModal from './AddFridgeModal';
@@ -97,11 +97,12 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
     setShowEditFridgeModal(Boolean(fridge));
   };
 
-  const handleSaveEdit = async (data: { name: string; location: string; temperature?: string }) => {
+  const handleSaveEdit = async (data: { name: string; location: string; temperature?: string; assignedAdminIds: string[] }) => {
     if (!editingFridge) return;
 
     const parsedTemperature = data.temperature?.trim() ? Number(data.temperature) : undefined;
 
+    // Update device basic info
     await updateSysadminDevice(editingFridge.id, {
       name: data.name.trim(),
       location_description: data.location.trim(),
@@ -110,6 +111,36 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
           ? parsedTemperature
           : undefined,
     });
+
+    // Handle admin assignments
+    try {
+      // Get current active assignments for this device
+      const assignmentsResponse = await getSysadminAssignments({ limit: 100 });
+      const currentAssignments = assignmentsResponse.data.filter(
+        (a) => a.device_id === editingFridge.id && a.is_active
+      );
+      const currentAdminIds = currentAssignments.map((a) => a.admin_user_id);
+
+      // Deactivate assignments for admins that are no longer selected
+      for (const assignment of currentAssignments) {
+        if (!data.assignedAdminIds.includes(assignment.admin_user_id)) {
+          await updateSysadminAssignment(assignment.assignment_id, { is_active: false });
+        }
+      }
+
+      // Create new assignments for admins that are not currently assigned
+      for (const adminId of data.assignedAdminIds) {
+        if (!currentAdminIds.includes(adminId)) {
+          await createSysadminAssignment({
+            device_id: editingFridge.id,
+            admin_user_id: adminId,
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update admin assignments', error);
+      // Don't throw error - device was already updated, just log assignment errors
+    }
 
     await loadFridges();
   };

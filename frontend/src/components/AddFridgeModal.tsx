@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
-import { createSysadminDevice, getSysadminAdmins, SysadminAdmin } from '../api/client';
+import { Search, X } from 'lucide-react';
+import {
+  createSysadminAssignment,
+  createSysadminDevice,
+  getSysadminAdmins,
+  SysadminAdmin,
+} from '../api/client';
 
 interface AddFridgeModalProps {
   isOpen: boolean;
@@ -16,7 +21,7 @@ interface AddFridgeFormData {
   defaultTemperature: string;
   shelfCount: string;
   sessionLimit: string;
-  assignedAdminId: string;
+  assignedAdminIds: string[];
 }
 
 const getInitialFormData = (): AddFridgeFormData => ({
@@ -27,7 +32,7 @@ const getInitialFormData = (): AddFridgeFormData => ({
   defaultTemperature: '4.0',
   shelfCount: '5',
   sessionLimit: '100',
-  assignedAdminId: '',
+  assignedAdminIds: [],
 });
 
 const parseOptionalNumber = (value: string): number | undefined => {
@@ -41,6 +46,7 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
   const [admins, setAdmins] = useState<SysadminAdmin[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [adminSearchQuery, setAdminSearchQuery] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -57,8 +63,9 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
     };
 
     setErrorMessage('');
+    setAdminSearchQuery('');
     setFormData(getInitialFormData());
-    loadAdmins();
+    void loadAdmins();
 
     return () => {
       isMounted = false;
@@ -69,12 +76,47 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
     return isSubmitting || !formData.name.trim() || !formData.locationDescription.trim();
   }, [formData.locationDescription, formData.name, isSubmitting]);
 
-  if (!isOpen) {
-    return null;
-  }
+  const filteredAdmins = useMemo(() => {
+    const query = adminSearchQuery.toLowerCase().trim();
+    const base = !query
+      ? admins
+      : admins.filter((admin) =>
+          `${admin.first_name} ${admin.last_name} ${admin.email}`
+            .toLowerCase()
+            .includes(query)
+        );
+
+    return [...base].sort((a, b) => {
+      const aSelected = formData.assignedAdminIds.includes(a.user_id);
+      const bSelected = formData.assignedAdminIds.includes(b.user_id);
+      if (aSelected === bSelected) return 0;
+      return aSelected ? -1 : 1;
+    });
+  }, [admins, adminSearchQuery, formData.assignedAdminIds]);
 
   const handleFieldChange = (key: keyof AddFridgeFormData, value: string) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleAdminToggle = (adminId: string) => {
+    setFormData((prev) => {
+      const currentIds = prev.assignedAdminIds;
+      if (currentIds.includes(adminId)) {
+        return { ...prev, assignedAdminIds: currentIds.filter((id) => id !== adminId) };
+      }
+      return { ...prev, assignedAdminIds: [...currentIds, adminId] };
+    });
+  };
+
+  const handleSelectAllAdmins = () => {
+    setFormData((prev) => ({
+      ...prev,
+      assignedAdminIds: admins.map((admin) => admin.user_id),
+    }));
+  };
+
+  const handleClearAdmins = () => {
+    setFormData((prev) => ({ ...prev, assignedAdminIds: [] }));
   };
 
   const handleSubmit = async () => {
@@ -84,7 +126,7 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
     setErrorMessage('');
 
     try {
-      await createSysadminDevice({
+      const device = await createSysadminDevice({
         name: formData.name.trim(),
         location_description: formData.locationDescription.trim(),
         gps_latitude: parseOptionalNumber(formData.latitude),
@@ -92,8 +134,18 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
         default_temperature: parseOptionalNumber(formData.defaultTemperature),
         shelf_count: parseOptionalNumber(formData.shelfCount),
         session_limit: parseOptionalNumber(formData.sessionLimit),
-        assigned_admin_id: formData.assignedAdminId || undefined,
       });
+
+      if (formData.assignedAdminIds.length > 0) {
+        await Promise.all(
+          formData.assignedAdminIds.map((adminId) =>
+            createSysadminAssignment({
+              device_id: device.device_id,
+              admin_user_id: adminId,
+            })
+          )
+        );
+      }
 
       await onCreated();
       onClose();
@@ -105,13 +157,13 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
     }
   };
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
     <>
-      <div
-        className="fixed inset-0 z-40"
-        style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40" style={{ backgroundColor: 'rgba(0,0,0,0.45)' }} onClick={onClose} />
 
       <div
         className="fixed z-50 bg-white"
@@ -130,8 +182,9 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
         <div className="flex items-center justify-between" style={{ marginBottom: '4px' }}>
           <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#1A1C1E', lineHeight: '27px' }}>Add Fridge</h3>
           <button
+            type="button"
             onClick={onClose}
-            className="transition-colors hover:bg-gray-100 rounded p-1"
+            className="rounded p-1 transition-colors hover:bg-gray-100"
             style={{ border: 'none', background: 'none', cursor: 'pointer' }}
           >
             <X size={18} style={{ color: '#6B7280' }} />
@@ -144,196 +197,160 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
 
         <div style={{ marginBottom: '24px' }}>
           <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1C1E', marginBottom: '12px', lineHeight: '22.5px' }}>Basic Information</p>
-
-          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-            Fridge Name *
-          </label>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Fridge Name *</label>
           <input
             type="text"
             value={formData.name}
             onChange={(e) => handleFieldChange('name', e.target.value)}
             placeholder="e.g., Main Entrance Fridge"
-            className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            style={{
-              height: '40px',
-              borderRadius: '8px',
-              border: '1px solid #D1D5DB',
-              padding: '0 12px',
-              fontSize: '14px',
-              marginBottom: '16px',
-            }}
+            className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+            style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px', marginBottom: '16px' }}
           />
 
-          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-            Location Description *
-          </label>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Location Description *</label>
           <input
             type="text"
             value={formData.locationDescription}
             onChange={(e) => handleFieldChange('locationDescription', e.target.value)}
             placeholder="e.g., Building A - Floor 2"
-            className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            style={{
-              height: '40px',
-              borderRadius: '8px',
-              border: '1px solid #D1D5DB',
-              padding: '0 12px',
-              fontSize: '14px',
-            }}
+            className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+            style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
           />
         </div>
 
         <div style={{ marginBottom: '24px' }}>
           <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1C1E', marginBottom: '2px', lineHeight: '22.5px' }}>Location & Configuration</p>
-          <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginBottom: '12px', lineHeight: '18px' }}>
-            Used for device tracking and analytics
-          </p>
+          <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginBottom: '12px', lineHeight: '18px' }}>Used for device tracking and analytics</p>
 
           <div className="grid grid-cols-2 gap-4" style={{ marginBottom: '16px' }}>
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-                Latitude
-              </label>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Latitude</label>
               <input
                 type="number"
                 step="any"
                 value={formData.latitude}
                 onChange={(e) => handleFieldChange('latitude', e.target.value)}
-                className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                style={{
-                  height: '40px',
-                  borderRadius: '8px',
-                  border: '1px solid #D1D5DB',
-                  padding: '0 12px',
-                  fontSize: '14px',
-                }}
+                className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-                Longitude
-              </label>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Longitude</label>
               <input
                 type="number"
                 step="any"
                 value={formData.longitude}
                 onChange={(e) => handleFieldChange('longitude', e.target.value)}
-                className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                style={{
-                  height: '40px',
-                  borderRadius: '8px',
-                  border: '1px solid #D1D5DB',
-                  padding: '0 12px',
-                  fontSize: '14px',
-                }}
+                className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
               />
             </div>
           </div>
 
-          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-            Default Temperature (°C)
-          </label>
+          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Default Temperature (°C)</label>
           <input
             type="number"
             step="0.1"
             value={formData.defaultTemperature}
             onChange={(e) => handleFieldChange('defaultTemperature', e.target.value)}
-            className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            style={{
-              height: '40px',
-              borderRadius: '8px',
-              border: '1px solid #D1D5DB',
-              padding: '0 12px',
-              fontSize: '14px',
-            }}
+            className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+            style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
           />
-          <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginTop: '4px', lineHeight: '18px' }}>
-            Recommended range: 2°C - 8°C
-          </p>
+          <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginTop: '4px', lineHeight: '18px' }}>Recommended range: 2°C - 8°C</p>
         </div>
 
         <div style={{ marginBottom: '24px' }}>
           <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1C1E', marginBottom: '12px', lineHeight: '22.5px' }}>Operational Settings</p>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-                Shelf Count
-              </label>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Shelf Count</label>
               <input
                 type="number"
                 min={1}
                 value={formData.shelfCount}
                 onChange={(e) => handleFieldChange('shelfCount', e.target.value)}
-                className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                style={{
-                  height: '40px',
-                  borderRadius: '8px',
-                  border: '1px solid #D1D5DB',
-                  padding: '0 12px',
-                  fontSize: '14px',
-                }}
+                className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-                Session Limit
-              </label>
+              <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>Session Limit</label>
               <input
                 type="number"
                 min={1}
                 value={formData.sessionLimit}
                 onChange={(e) => handleFieldChange('sessionLimit', e.target.value)}
-                className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                style={{
-                  height: '40px',
-                  borderRadius: '8px',
-                  border: '1px solid #D1D5DB',
-                  padding: '0 12px',
-                  fontSize: '14px',
-                }}
+                className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+                style={{ height: '40px', borderRadius: '8px', border: '1px solid #D1D5DB', padding: '0 12px', fontSize: '14px' }}
               />
-              <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginTop: '4px', lineHeight: '18px' }}>
-                Maximum allowed active session duration
-              </p>
+              <p style={{ fontSize: '12px', color: '#6B7280', fontStyle: 'italic', marginTop: '4px', lineHeight: '18px' }}>Maximum allowed active session duration</p>
             </div>
           </div>
         </div>
 
         <div style={{ marginBottom: '24px' }}>
-          <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1C1E', marginBottom: '12px', lineHeight: '22.5px' }}>Admin Assignment</p>
+          <div className="flex items-center justify-between" style={{ marginBottom: '8px' }}>
+            <h4 style={{ fontSize: '15px', fontWeight: 600, color: '#1A1C1E' }}>Admin Assignment</h4>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSelectAllAdmins}
+                className="transition-colors hover:bg-gray-100"
+                style={{ fontSize: '12px', color: '#2563EB', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAdmins}
+                className="transition-colors hover:bg-gray-100"
+                style={{ fontSize: '12px', color: '#6B7280', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 500 }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
 
-          <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', marginBottom: '6px' }}>
-            Assigned Admin
-          </label>
-          <select
-            value={formData.assignedAdminId}
-            onChange={(e) => handleFieldChange('assignedAdminId', e.target.value)}
-            className="w-full outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            style={{
-              height: '40px',
-              borderRadius: '8px',
-              border: '1px solid #D1D5DB',
-              padding: '0 12px',
-              fontSize: '14px',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="">Select admin</option>
-            {admins.map((admin) => (
-              <option key={admin.user_id} value={admin.user_id}>
-                {[admin.first_name, admin.last_name].filter(Boolean).join(' ') || admin.email}
-              </option>
+          <p style={{ fontSize: '12px', color: '#6B7280', marginBottom: '8px' }}>Selected: {formData.assignedAdminIds.length} of {admins.length}</p>
+
+          <div className="relative" style={{ marginBottom: '8px' }}>
+            <Search
+              size={16}
+              style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9CA3AF' }}
+            />
+            <input
+              type="text"
+              placeholder="Search admins..."
+              value={adminSearchQuery}
+              onChange={(event) => setAdminSearchQuery(event.target.value)}
+              className="w-full outline-none transition-all focus:ring-2 focus:ring-blue-500"
+              style={{ height: '36px', paddingLeft: '34px', paddingRight: '10px', borderRadius: '6px', border: '1px solid #D1D5DB', fontSize: '13px' }}
+            />
+          </div>
+
+          <div className="border rounded-lg p-3" style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #D1D5DB' }}>
+            {filteredAdmins.map((admin) => (
+              <label key={admin.user_id} className="mb-2 flex cursor-pointer items-center gap-2 last:mb-0">
+                <input
+                  type="checkbox"
+                  checked={formData.assignedAdminIds.includes(admin.user_id)}
+                  onChange={() => handleAdminToggle(admin.user_id)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '14px', color: '#1A1C1E' }}>
+                  {[admin.first_name, admin.last_name].filter(Boolean).join(' ') || admin.email}
+                </span>
+              </label>
             ))}
-          </select>
+            {filteredAdmins.length === 0 && <p style={{ fontSize: '13px', color: '#6B7280' }}>No admin found for this search.</p>}
+          </div>
         </div>
 
-        {errorMessage ? (
-          <p style={{ color: '#DC2626', fontSize: '13px', marginBottom: '10px' }}>{errorMessage}</p>
-        ) : null}
+        {errorMessage ? <p style={{ color: '#DC2626', fontSize: '13px', marginBottom: '10px' }}>{errorMessage}</p> : null}
 
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={onClose}
             className="flex-1 transition-colors hover:bg-gray-100"
             style={{
@@ -350,7 +367,10 @@ export default function AddFridgeModal({ isOpen, onClose, onCreated }: AddFridge
             Cancel
           </button>
           <button
-            onClick={handleSubmit}
+            type="button"
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isCreateDisabled}
             className="flex-1 transition-colors"
             style={{
