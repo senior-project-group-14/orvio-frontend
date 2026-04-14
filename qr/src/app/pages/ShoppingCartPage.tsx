@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
+import { io, Socket } from "socket.io-client";
 
 interface CartItem {
   id: string;
@@ -38,6 +39,7 @@ export function ShoppingCartPage() {
   const [autoCompleteCountdown, setAutoCompleteCountdown] = useState(AUTO_COMPLETE_SECONDS);
   const [hasUsedOneTimeExtension, setHasUsedOneTimeExtension] = useState(false);
   const hasRedirectedToFeedbackRef = useRef(false);
+  const presenceSocketRef = useRef<Socket | null>(null);
 
   const getBaseUrl = () => {
     const url = import.meta.env.VITE_BACKEND_URL;
@@ -45,6 +47,17 @@ export function ShoppingCartPage() {
       return String(url).replace(/\/$/, "");
     }
     return "/api";
+  };
+
+  const getSocketServerUrl = () => {
+    const url = import.meta.env.VITE_BACKEND_URL;
+    if (url && String(url).trim()) {
+      return String(url).replace(/\/$/, "");
+    }
+
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:3000`;
   };
 
   const getRemainingSeconds = (endsAtMs: number) => {
@@ -195,6 +208,7 @@ export function ShoppingCartPage() {
       setUpdatingItemId(null);
     }
   };
+
 
   // Countdown is based on DB start_time so refresh does not reset the timer.
   useEffect(() => {
@@ -352,6 +366,59 @@ export function ShoppingCartPage() {
       window.removeEventListener("focus", onVisibilityOrFocus);
     };
   }, [syncSessionStateWithBackend]);
+
+  useEffect(() => {
+    if (!activeTransactionId || isCompletingPurchase || isCancellingSession) {
+      return;
+    }
+
+    const deviceId = localStorage.getItem("orvio_device_id");
+    if (!deviceId) {
+      return;
+    }
+
+    const socket = io(getSocketServerUrl(), {
+      transports: ["websocket", "polling"],
+    });
+
+    presenceSocketRef.current = socket;
+
+    const registerPresence = () => {
+      socket.emit(
+        "register_session_presence",
+        {
+          device_id: deviceId,
+          transaction_id: activeTransactionId,
+        },
+        (ack?: { ok?: boolean; message?: string }) => {
+          if (ack?.ok) {
+            return;
+          }
+
+          const message = ack?.message || "Failed to register websocket session presence.";
+          const normalized = message.toLowerCase();
+
+          if (normalized.includes("not active") || normalized.includes("not found") || normalized.includes("mismatch")) {
+            redirectToMissedYou();
+            return;
+          }
+
+          setCompleteError(message);
+        }
+      );
+    };
+
+    socket.on("connect", registerPresence);
+
+    return () => {
+      socket.emit("unregister_session_presence");
+      socket.off("connect", registerPresence);
+      socket.disconnect();
+      if (presenceSocketRef.current?.id === socket.id) {
+        presenceSocketRef.current = null;
+      }
+    };
+  }, [activeTransactionId, isCancellingSession, isCompletingPurchase, redirectToMissedYou]);
 
   useEffect(() => {
     if (sessionEndsAtMs === null) {

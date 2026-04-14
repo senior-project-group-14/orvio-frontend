@@ -7,8 +7,9 @@ interface RecentActivityProps {
   activities?: {
     time: string;
     fridge: string;
-    action: 'Take' | 'Return';
+    action: 'Take' | 'Return' | 'No product movement';
     count: string;
+    summary: string;
   }[];
 }
 
@@ -61,8 +62,10 @@ export default function RecentActivity({ isLoading = false, activities }: Recent
                 <div className="flex-shrink-0">
                   {activity.action === 'Take' ? (
                     <ArrowDownCircle size={20} style={{ color: '#2563EB' }} />
-                  ) : (
+                  ) : activity.action === 'Return' ? (
                     <ArrowUpCircle size={20} style={{ color: '#059669' }} />
+                  ) : (
+                    <Activity size={20} style={{ color: '#6B7280' }} />
                   )}
                 </div>
 
@@ -81,7 +84,12 @@ export default function RecentActivity({ isLoading = false, activities }: Recent
                       style={{
                         fontSize: '13px',
                         fontWeight: 500,
-                        color: activity.action === 'Take' ? '#2563EB' : '#059669'
+                        color:
+                          activity.action === 'Take'
+                            ? '#2563EB'
+                            : activity.action === 'Return'
+                              ? '#059669'
+                              : '#6B7280'
                       }}
                     >
                       {activity.action}
@@ -90,6 +98,13 @@ export default function RecentActivity({ isLoading = false, activities }: Recent
                       {activity.count}
                     </span>
                   </div>
+                  {activity.summary && activity.summary !== '-' ? (
+                    <div style={{ marginTop: '4px' }}>
+                      <p style={{ fontSize: '12px', color: '#9CA3AF' }}>
+                        {activity.summary}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}

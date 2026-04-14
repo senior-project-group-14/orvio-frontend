@@ -167,9 +167,11 @@ export interface TransactionItem {
 
 export interface DeviceTransaction {
   transaction_id: string;
+  transaction_code?: string | null;
   device_id: string;
   start_time: string;
   end_time?: string | null;
+  transaction_type?: string | null;
   status?: string | null;
   is_active?: boolean | null;
   items?: TransactionItem[] | null;
@@ -194,6 +196,10 @@ export interface DashboardSummaryResponse {
     start_time: string;
     action_type?: string | null;
     item_count: number;
+    product_summary?: string | null;
+    has_product_movement?: boolean;
+    display_action?: string | null;
+    display_count?: string | null;
   }>;
   weeklyData: Array<{
     day: string;

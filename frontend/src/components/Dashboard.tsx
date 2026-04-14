@@ -20,8 +20,9 @@ type DashboardAlert = {
 type DashboardActivity = {
   time: string;
   fridge: string;
-  action: 'Take' | 'Return';
+  action: 'Take' | 'Return' | 'No product movement';
   count: string;
+  summary: string;
 };
 
 type WeeklyActivity = { day: string; sessions: number };
@@ -45,7 +46,8 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
     return 'Low';
   };
 
-  const getActionLabel = (actionType?: string | null): 'Take' | 'Return' => {
+  const getActionLabel = (actionType?: string | null, itemCount = 0): 'Take' | 'Return' | 'No product movement' => {
+    if (itemCount <= 0) return 'No product movement';
     if (actionType && actionType.toLowerCase().includes('return')) return 'Return';
     return 'Take';
   };
@@ -67,12 +69,30 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
           time: formatRelativeTime(alert.timestamp),
         }));
 
-        const nextRecentActivity = dashboardSummary.recentActivity.map((activity) => ({
-          time: formatTime(activity.start_time),
-          fridge: activity.fridge,
-          action: getActionLabel(activity.action_type),
-          count: `${activity.item_count || 1} items`,
-        }));
+        const nextRecentActivity = dashboardSummary.recentActivity.map((activity) => {
+          const itemCount = Math.max(0, Number(activity.item_count || 0));
+          const backendCount = (activity.display_count || '').trim();
+
+          return {
+            time: formatTime(activity.start_time),
+            fridge: activity.fridge,
+            action:
+              itemCount === 0
+                ? 'No product movement'
+                : ((activity.display_action === 'Take' || activity.display_action === 'Return')
+                  ? activity.display_action
+                  : getActionLabel(activity.action_type, activity.item_count)),
+            count:
+              itemCount === 0
+                ? 'No product movement'
+                : (backendCount.length > 0
+                  ? backendCount
+                  : `${itemCount} item${itemCount === 1 ? '' : 's'}`),
+            summary: activity.product_summary && activity.product_summary.trim().length > 0
+              ? activity.product_summary
+              : '-',
+          };
+        });
 
         const nextWeeklyData = dashboardSummary.weeklyData;
 

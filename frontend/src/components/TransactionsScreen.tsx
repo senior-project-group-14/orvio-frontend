@@ -18,6 +18,7 @@ interface TransactionsScreenProps {
 
 interface Transaction {
   id: string;
+  transactionCode: string;
   timestamp: string;
   createdAt: string;
   fridge: string;
@@ -66,25 +67,27 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
           if (items.length === 0) {
             return [{
               id: txn.transaction_id,
+              transactionCode: txn.transaction_code || txn.transaction_id,
               timestamp: formatTime(txn.start_time),
               createdAt: txn.start_time,
               fridge: deviceNameMap.get(txn.device_id) || txn.device_id,
               fridgeId: txn.device_id,
-              product: 'Unknown product',
+              product: '-',
               action: getActionLabel(txn.transaction_type),
-              quantity: 1,
+              quantity: 0,
               sessionId: txn.transaction_id,
             }];
           }
           return items.map((item) => ({
             id: `${txn.transaction_id}-${item.transaction_item_id}`,
+            transactionCode: txn.transaction_code || txn.transaction_id,
             timestamp: formatTime(txn.start_time),
             createdAt: txn.start_time,
             fridge: deviceNameMap.get(txn.device_id) || txn.device_id,
             fridgeId: txn.device_id,
             product: item.product?.name || 'Unknown product',
             action: getActionLabel(item.action_type || txn.transaction_type),
-            quantity: item.quantity,
+            quantity: Math.max(0, Number(item.quantity || 0)),
             sessionId: txn.transaction_id,
           }));
         });
@@ -131,7 +134,8 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
     const matchesSearch =
       txn.product.toLowerCase().includes(searchQuery.toLowerCase()) ||
       txn.fridge.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      txn.sessionId.toLowerCase().includes(searchQuery.toLowerCase());
+      txn.sessionId.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      txn.transactionCode.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesFridge = !fridgeFilter || txn.fridgeId === fridgeFilter;
     const matchesProduct = !productFilter || txn.product === productFilter;
@@ -175,6 +179,7 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
   const sessionsById = useMemo(() => {
     const grouped = new Map<string, {
       sessionId: string;
+      transactionCode: string;
       startAt: string;
       endAt: string;
       actions: { type: 'take' | 'return'; product: string; quantity: number }[];
@@ -182,18 +187,21 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
 
     transactions.forEach((txn) => {
       const existing = grouped.get(txn.sessionId);
-      const action = {
-        type: txn.action === 'Take' ? 'take' : 'return',
-        product: txn.product,
-        quantity: txn.quantity,
-      } as const;
+      const action = txn.quantity > 0
+        ? {
+            type: txn.action === 'Take' ? 'take' : 'return',
+            product: txn.product,
+            quantity: txn.quantity,
+          } as const
+        : null;
 
       if (!existing) {
         grouped.set(txn.sessionId, {
           sessionId: txn.sessionId,
+          transactionCode: txn.transactionCode,
           startAt: txn.createdAt,
           endAt: txn.createdAt,
-          actions: [action],
+          actions: action ? [action] : [],
         });
         return;
       }
@@ -204,7 +212,9 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
       if (new Date(txn.createdAt) > new Date(existing.endAt)) {
         existing.endAt = txn.createdAt;
       }
-      existing.actions.push(action);
+      if (action) {
+        existing.actions.push(action);
+      }
     });
 
     return grouped;
@@ -217,6 +227,7 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
 
     return {
       id: session.sessionId,
+      transactionCode: session.transactionCode,
       startTime: formatTime(session.startAt),
       endTime: formatTime(session.endAt),
       duration: formatDuration(session.startAt, session.endAt),
@@ -437,7 +448,7 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
                       Quantity
                     </th>
                     <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
-                      Session ID
+                      Transaction Code
                     </th>
                     <th style={{ textAlign: 'center', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
                       Actions
@@ -465,22 +476,40 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
                       <td style={{ padding: '18px 8px', fontSize: '14px', color: '#6B7280' }}>
                         {txn.fridge}
                       </td>
-                      <td style={{ padding: '18px 8px', fontSize: '14px', fontWeight: 500, color: '#1A1C1E' }}>
-                        {txn.product}
+                      <td style={{ padding: '18px 8px', fontSize: '14px', fontWeight: 500, color: '#1A1C1E', textAlign: txn.quantity <= 0 ? 'center' : 'left' }}>
+                        {txn.quantity <= 0 ? (
+                          <div className="flex w-full items-center justify-center">-</div>
+                        ) : (
+                          txn.product
+                        )}
                       </td>
-                      <td style={{ padding: '18px 8px' }}>
-                        <span
-                          style={{
-                            fontSize: '14px',
-                            fontWeight: 600,
-                            color: getActionColor(txn.action)
-                          }}
-                        >
-                          {txn.action}
-                        </span>
+                      <td style={{ padding: '18px 8px', textAlign: txn.quantity <= 0 ? 'center' : 'left' }}>
+                        {txn.quantity <= 0 ? (
+                          <div className="flex w-full items-center justify-center">
+                            <span
+                              style={{
+                                fontSize: '14px',
+                                fontWeight: 600,
+                                color: getActionColor(txn.action)
+                              }}
+                            >
+                              -
+                            </span>
+                          </div>
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: '14px',
+                              fontWeight: 600,
+                              color: getActionColor(txn.action)
+                            }}
+                          >
+                            {txn.action}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '18px 8px', fontSize: '14px', fontWeight: 600, color: '#1A1C1E', textAlign: 'center' }}>
-                        {txn.action === 'Take' ? '-' : '+'}{txn.quantity}
+                        {txn.quantity <= 0 ? '0' : `${txn.action === 'Take' ? '-' : '+'}${txn.quantity}`}
                       </td>
                       <td style={{ padding: '18px 8px' }}>
                         <code 
@@ -491,9 +520,9 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
                             fontFamily: 'monospace',
                             fontWeight: 500
                           }}
-                          title={txn.sessionId}
+                          title={txn.transactionCode}
                         >
-                          {txn.sessionId}
+                          {txn.transactionCode}
                         </code>
                       </td>
                       <td style={{ padding: '18px 8px', textAlign: 'center' }}>

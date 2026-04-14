@@ -12,6 +12,7 @@ interface SessionsTabProps {
 
 interface Session {
   id: string;
+  transactionCode: string;
   startTime: string;
   endTime: string;
   duration: string;
@@ -33,13 +34,16 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
         const transactions = response.data;
         const mapped = transactions.map((txn) => {
           const items = txn.items || [];
-          const actions = items.map((item) => ({
-            type: item.action_type && item.action_type.toLowerCase().includes('return') ? 'return' : 'take',
-            product: item.product?.name || 'Unknown product',
-            quantity: item.quantity,
-          }));
+          const actions = items
+            .map((item) => ({
+              type: item.action_type && item.action_type.toLowerCase().includes('return') ? 'return' : 'take',
+              product: item.product?.name || 'Unknown product',
+              quantity: Math.max(0, Number(item.quantity || 0)),
+            }))
+            .filter((item) => item.quantity > 0);
           return {
             id: txn.transaction_id,
+            transactionCode: txn.transaction_code || txn.transaction_id,
             startTime: formatTime(txn.start_time),
             endTime: formatTime(txn.end_time || txn.start_time),
             duration: formatDuration(txn.start_time, txn.end_time || undefined),
@@ -93,7 +97,7 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
               <thead>
                 <tr style={{ borderBottom: '2px solid #E5E7EB' }}>
                   <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
-                    Session ID
+                    Transaction Code
                   </th>
                   <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
                     Start Time
@@ -133,10 +137,10 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
                           color: '#2563EB',
                           fontFamily: 'monospace'
                         }}
-                        title={session.id}
+                        title={session.transactionCode}
                         onClick={() => setSelectedSession(session)}
                       >
-                        {session.id}
+                        {session.transactionCode}
                       </code>
                     </td>
                     <td style={{ padding: '16px 8px', fontSize: '14px', color: '#1A1C1E' }}>
