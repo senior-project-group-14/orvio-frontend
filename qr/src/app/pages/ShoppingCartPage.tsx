@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { io, Socket } from "socket.io-client";
+import { getApiBaseUrl, getSocketServerUrl } from "../backendUrl";
 
 interface CartItem {
   id: string;
@@ -40,25 +41,6 @@ export function ShoppingCartPage() {
   const [hasUsedOneTimeExtension, setHasUsedOneTimeExtension] = useState(false);
   const hasRedirectedToFeedbackRef = useRef(false);
   const presenceSocketRef = useRef<Socket | null>(null);
-
-  const getBaseUrl = () => {
-    const url = import.meta.env.VITE_BACKEND_URL;
-    if (url && String(url).trim()) {
-      return String(url).replace(/\/$/, "");
-    }
-    return "/api";
-  };
-
-  const getSocketServerUrl = () => {
-    const url = import.meta.env.VITE_BACKEND_URL;
-    if (url && String(url).trim()) {
-      return String(url).replace(/\/$/, "");
-    }
-
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    return `${protocol}//${hostname}:3000`;
-  };
 
   const getRemainingSeconds = (endsAtMs: number) => {
     return Math.max(0, Math.ceil((endsAtMs - Date.now()) / 1000));
@@ -110,7 +92,7 @@ export function ShoppingCartPage() {
     }
 
     const response = await fetch(
-      `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart`
+      `${getApiBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart`
     );
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
@@ -144,7 +126,7 @@ export function ShoppingCartPage() {
     }
 
     const response = await fetch(
-      `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
+      `${getApiBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
     );
 
     const payload = (await response.json().catch(() => ({}))) as {
@@ -180,7 +162,7 @@ export function ShoppingCartPage() {
 
     try {
       const response = await fetch(
-        `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart/items/${encodeURIComponent(productId)}`,
+        `${getApiBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/cart/items/${encodeURIComponent(productId)}`,
         {
           method: "PATCH",
           headers: {
@@ -222,7 +204,7 @@ export function ShoppingCartPage() {
         }
 
         const response = await fetch(
-          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
+          `${getApiBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/current`
         );
 
         const payload = (await response.json().catch(() => ({}))) as {
@@ -512,7 +494,7 @@ export function ShoppingCartPage() {
         latestCartItems = await loadSessionCart(transactionId, true);
 
         const endResponse = await fetch(
-          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
+          `${getApiBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
           {
             method: "POST",
             headers: {
@@ -534,7 +516,7 @@ export function ShoppingCartPage() {
         }
 
         const confirmResponse = await fetch(
-          `${getBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/confirm`,
+          `${getApiBaseUrl()}/sessions/${encodeURIComponent(transactionId)}/confirm`,
           {
             method: "POST",
             headers: {
@@ -581,7 +563,7 @@ export function ShoppingCartPage() {
 
       if (transactionId && deviceId) {
         const endResponse = await fetch(
-          `${getBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
+          `${getApiBaseUrl()}/devices/${encodeURIComponent(deviceId)}/sessions/${encodeURIComponent(transactionId)}/end`,
           {
             method: "POST",
             headers: {
@@ -773,3 +755,4 @@ export function ShoppingCartPage() {
     </div>
   );
 }
+

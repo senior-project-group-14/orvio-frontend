@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+**/node_modules/
+package-lock.json
+**/package-lock.json
+# Build
+dist/
+build/
+dist-ssr/
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.development
+.env.example
+.env.local
+.env.*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/

@@ -1,19 +1,12 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { FridgeIcon } from "../components/FridgeIcon";
+import { getApiBaseUrl } from "../backendUrl";
 
 export function WelcomePage() {
   const navigate = useNavigate();
   const { device_id } = useParams();
   const [isStartingSession, setIsStartingSession] = useState(false);
-
-  const getBaseUrl = () => {
-    const url = import.meta.env.VITE_BACKEND_URL;
-    if (url && String(url).trim()) {
-      return String(url).replace(/\/$/, "");
-    }
-    return "/api";
-  };
 
   const handleStartSession = async () => {
     if (!device_id) {
@@ -24,7 +17,7 @@ export function WelcomePage() {
     setIsStartingSession(true);
 
     try {
-      const response = await fetch(`${getBaseUrl()}/devices/${encodeURIComponent(device_id)}/sessions/start`, {
+      const response = await fetch(`${getApiBaseUrl()}/devices/${encodeURIComponent(device_id)}/sessions/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
