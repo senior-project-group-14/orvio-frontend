@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Package } from 'lucide-react';
+import { Package, Plus, X, Edit2 } from 'lucide-react';
 import { EmptyState } from '../ui/empty-state';
 import { TableSkeleton } from '../ui/table-skeleton';
-import { getDeviceInventory } from '../../api/client';
+import { getDeviceInventory, getCoolerProducts, addInventoryItem, updateInventoryQuantity, AddInventoryResponse, UpdateInventoryResponse } from '../../api/client';
 
 interface InventoryTabProps {
   fridgeId: string;
@@ -12,11 +12,17 @@ interface InventoryTabProps {
 interface Product {
   id: string;
   name: string;
-  sku: string;
   quantity: number;
   threshold: number;
   category: string;
+  lastStockUpdate: string;
   image?: string;
+}
+
+interface AssignedProduct {
+  product_id: string;
+  product_name: string;
+  brand_name?: string;
 }
 
 export default function InventoryTab({ fridgeId, isLoading = false }: InventoryTabProps) {
@@ -24,40 +30,101 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [isFetching, setIsFetching] = useState(false);
+  const [assignedProducts, setAssignedProducts] = useState<AssignedProduct[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  
+  // Add inventory form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [submitSuccess, setSubmitSuccess] = useState<AddInventoryResponse | null>(null);
 
+  // Edit inventory form state
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editingProductName, setEditingProductName] = useState('');
+  const [editQuantity, setEditQuantity] = useState('');
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editSuccess, setEditSuccess] = useState<UpdateInventoryResponse | null>(null);
 
+  const formatLastUpdate = (dateString: string | null | undefined): string => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'N/A';
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const year = date.getFullYear();
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${day}.${month}.${year} - ${hours}:${minutes}`;
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const loadInventory = async (isMounted?: () => boolean) => {
+    setIsFetching(true);
+    try {
+      const response = await getDeviceInventory(fridgeId, { limit: 100 });
+      const inventory = response.data;
+
+      const mapped = inventory.map((item) => ({
+        id: item.product_id,
+        name: item.product_name,
+        quantity: item.current_stock,
+        threshold: item.critic_stock,
+        category: item.brand_name || 'Uncategorized',
+        lastStockUpdate: formatLastUpdate(item.last_stock_update),
+      }));
+
+      if (!isMounted || isMounted()) {
+        setProducts(mapped);
+      }
+    } catch (error) {
+      console.error('Failed to load inventory', error);
+      if (!isMounted || isMounted()) {
+        setProducts([]);
+      }
+    } finally {
+      if (!isMounted || isMounted()) {
+        setIsFetching(false);
+      }
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
-    const loadInventory = async () => {
-      setIsFetching(true);
-      try {
-        const response = await getDeviceInventory(fridgeId, { limit: 100 });
-        const inventory = response.data;
-        const mapped = inventory.map((item) => ({
-          id: item.product_id,
-          name: item.product_name,
-          sku: item.product_id.slice(0, 8).toUpperCase(),
-          quantity: item.current_stock,
-          threshold: item.critic_stock,
-          category: item.brand_name || 'Uncategorized',
-        }));
-        if (isMounted) {
-          setProducts(mapped);
-        }
-      } catch (error) {
-        console.error('Failed to load inventory', error);
-        if (isMounted) setProducts([]);
-      } finally {
-        if (isMounted) setIsFetching(false);
-      }
-    };
-
-    loadInventory();
+    loadInventory(() => isMounted);
     return () => {
       isMounted = false;
     };
   }, [fridgeId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadAssignedProducts = async () => {
+      setIsLoadingProducts(true);
+      try {
+        const response = await getCoolerProducts(fridgeId, { limit: 500 });
+        if (isMounted) {
+          setAssignedProducts(response.data);
+        }
+      } catch (error) {
+        console.error('Failed to load assigned products', error);
+        if (isMounted) setAssignedProducts([]);
+      } finally {
+        if (isMounted) setIsLoadingProducts(false);
+      }
+    };
+
+    if (showAddForm) {
+      loadAssignedProducts();
+    }
+  }, [showAddForm, fridgeId]);
 
   const categories = useMemo(() => {
     return Array.from(new Set(products.map((product) => product.category))).sort();
@@ -78,6 +145,92 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
     return status === 'OK' ? '#10B981' : '#DC2626';
   };
 
+  const handleAddInventory = async () => {
+    setSubmitError('');
+    setSubmitSuccess(null);
+
+    if (!selectedProductId) {
+      setSubmitError('Please select a product');
+      return;
+    }
+
+    const qty = parseInt(quantity, 10);
+    if (isNaN(qty) || qty <= 0) {
+      setSubmitError('Quantity must be a positive number');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const result = await addInventoryItem(fridgeId, selectedProductId, qty);
+      setSubmitSuccess(result);
+      setSelectedProductId('');
+      setQuantity('1');
+      await loadInventory();
+      handleCloseForm();
+    } catch (error: any) {
+      console.error('Failed to add inventory', error);
+      setSubmitError(error.message || 'Failed to add inventory. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCloseForm = () => {
+    setShowAddForm(false);
+    setSelectedProductId('');
+    setQuantity('1');
+    setSubmitError('');
+    setSubmitSuccess(null);
+  };
+
+  const handleOpenEditForm = (product: Product) => {
+    setEditingProductId(product.id);
+    setEditingProductName(product.name);
+    setEditQuantity(String(product.quantity));
+    setShowEditForm(true);
+    setEditError('');
+    setEditSuccess(null);
+  };
+
+  const handleEditInventory = async () => {
+    setEditError('');
+    setEditSuccess(null);
+
+    if (!editingProductId) {
+      setEditError('Product not found');
+      return;
+    }
+
+    const qty = parseInt(editQuantity, 10);
+    if (isNaN(qty) || qty < 0) {
+      setEditError('Quantity must be a non-negative number');
+      return;
+    }
+
+    setIsEditSubmitting(true);
+    try {
+      const result = await updateInventoryQuantity(fridgeId, editingProductId, qty);
+      setEditSuccess(result);
+      await loadInventory();
+      handleCloseEditForm();
+    } catch (error: any) {
+      console.error('Failed to update inventory', error);
+      setEditError(error.message || 'Failed to update inventory. Please try again.');
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  };
+
+  const handleCloseEditForm = () => {
+    setShowEditForm(false);
+    setEditingProductId(null);
+    setEditingProductName('');
+    setEditQuantity('');
+    setEditError('');
+    setEditSuccess(null);
+  };
+
   return (
     <div
       className="bg-white"
@@ -89,7 +242,7 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
         padding: '24px'
       }}
     >
-      {/* Header with Filters */}
+      {/* Header with Filters and Add Button */}
       <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#1A1C1E' }}>
           Inventory
@@ -135,8 +288,367 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
               Show only low stock
             </span>
           </label>
+
+          {/* Add Inventory Button */}
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="flex items-center gap-2 transition-all"
+            style={{
+              height: '36px',
+              padding: '0 12px',
+              borderRadius: '8px',
+              backgroundColor: '#3B82F6',
+              color: 'white',
+              border: 'none',
+              fontSize: '14px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#2563EB';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#3B82F6';
+            }}
+          >
+            <Plus size={18} />
+            Add Stock
+          </button>
         </div>
       </div>
+
+      {/* Add Inventory Form Modal */}
+      {showAddForm && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50
+          }}
+          onClick={handleCloseForm}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '400px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#1A1C1E' }}>Add Inventory</h3>
+              <button
+                onClick={handleCloseForm}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                <X size={24} style={{ color: '#6B7280' }} />
+              </button>
+            </div>
+
+            {submitSuccess && (
+              <div
+                style={{
+                  backgroundColor: '#D1FAE5',
+                  border: '1px solid #6EE7B7',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '16px',
+                  fontSize: '14px',
+                  color: '#065F46'
+                }}
+              >
+                ✓ Added {submitSuccess.quantity_added} {submitSuccess.product_name}. New stock: {submitSuccess.new_stock}
+              </div>
+            )}
+
+            {submitError && (
+              <div
+                style={{
+                  backgroundColor: '#FEE2E2',
+                  border: '1px solid #FECACA',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '16px',
+                  fontSize: '14px',
+                  color: '#7F1D1D'
+                }}
+              >
+                ✗ {submitError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#6B7280', marginBottom: '6px' }}>
+                Select Product *
+              </label>
+              <select
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
+                disabled={isLoadingProducts || isSubmitting}
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  padding: '0 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  fontSize: '14px',
+                  cursor: isLoadingProducts ? 'not-allowed' : 'pointer',
+                  backgroundColor: isLoadingProducts ? '#F3F4F6' : 'white'
+                }}
+              >
+                <option value="">{isLoadingProducts ? 'Loading products...' : 'Choose a product'}</option>
+                {assignedProducts.map((product) => (
+                  <option key={product.product_id} value={product.product_id}>
+                    {product.product_name} ({product.brand_name || 'N/A'})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#6B7280', marginBottom: '6px' }}>
+                Quantity *
+              </label>
+              <input
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                disabled={isSubmitting}
+                min="1"
+                step="1"
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  padding: '0 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  fontSize: '14px',
+                  backgroundColor: isSubmitting ? '#F3F4F6' : 'white'
+                }}
+                placeholder="Enter quantity"
+              />
+            </div>
+
+            <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleCloseForm}
+                disabled={isSubmitting}
+                style={{
+                  height: '40px',
+                  padding: '0 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  backgroundColor: 'white',
+                  color: '#6B7280',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isSubmitting ? 0.6 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddInventory}
+                disabled={isSubmitting || !selectedProductId}
+                style={{
+                  height: '40px',
+                  padding: '0 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: selectedProductId && !isSubmitting ? '#3B82F6' : '#E5E7EB',
+                  color: selectedProductId && !isSubmitting ? 'white' : '#9CA3AF',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: selectedProductId && !isSubmitting ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {isSubmitting ? 'Adding...' : 'Add Stock'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Inventory Form Modal */}
+      {showEditForm && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50
+          }}
+          onClick={handleCloseEditForm}
+        >
+          <div
+            style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+              padding: '24px',
+              width: '90%',
+              maxWidth: '400px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#1A1C1E' }}>Edit Quantity</h3>
+              <button
+                onClick={handleCloseEditForm}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                <X size={24} style={{ color: '#6B7280' }} />
+              </button>
+            </div>
+
+            {editSuccess && (
+              <div
+                style={{
+                  backgroundColor: '#D1FAE5',
+                  border: '1px solid #6EE7B7',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '16px',
+                  fontSize: '14px',
+                  color: '#065F46'
+                }}
+              >
+                ✓ Updated {editSuccess.product_name}. New stock: {editSuccess.new_stock}
+              </div>
+            )}
+
+            {editError && (
+              <div
+                style={{
+                  backgroundColor: '#FEE2E2',
+                  border: '1px solid #FECACA',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '16px',
+                  fontSize: '14px',
+                  color: '#7F1D1D'
+                }}
+              >
+                ✗ {editError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#6B7280', marginBottom: '6px' }}>
+                Product
+              </label>
+              <div
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  padding: '0 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  fontSize: '14px',
+                  backgroundColor: '#F3F4F6',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#1A1C1E'
+                }}
+              >
+                {editingProductName}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: '#6B7280', marginBottom: '6px' }}>
+                New Quantity *
+              </label>
+              <input
+                type="number"
+                value={editQuantity}
+                onChange={(e) => setEditQuantity(e.target.value)}
+                disabled={isEditSubmitting}
+                min="0"
+                step="1"
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  padding: '0 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  fontSize: '14px',
+                  backgroundColor: isEditSubmitting ? '#F3F4F6' : 'white'
+                }}
+                placeholder="Enter new quantity"
+              />
+            </div>
+
+            <div className="flex gap-3" style={{ justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleCloseEditForm}
+                disabled={isEditSubmitting}
+                style={{
+                  height: '40px',
+                  padding: '0 16px',
+                  borderRadius: '8px',
+                  border: '1px solid #D1D5DB',
+                  backgroundColor: 'white',
+                  color: '#6B7280',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isEditSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isEditSubmitting ? 0.6 : 1
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditInventory}
+                disabled={isEditSubmitting}
+                style={{
+                  height: '40px',
+                  padding: '0 16px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: !isEditSubmitting ? '#3B82F6' : '#E5E7EB',
+                  color: !isEditSubmitting ? 'white' : '#9CA3AF',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: !isEditSubmitting ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {isEditSubmitting ? 'Updating...' : 'Update'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Products Table */}
       <div style={{ overflowX: 'auto' }}>
@@ -155,17 +667,17 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
                 <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
                   Product
                 </th>
-                <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
-                  SKU
-                </th>
                 <th style={{ textAlign: 'center', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
                   Quantity
                 </th>
                 <th style={{ textAlign: 'center', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
-                  Threshold
+                  Critic Stock
                 </th>
                 <th style={{ textAlign: 'center', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
                   Status
+                </th>
+                <th style={{ textAlign: 'left', padding: '12px 8px', fontSize: '13px', fontWeight: 500, color: '#6B7280' }}>
+                  Last Update
                 </th>
               </tr>
             </thead>
@@ -210,9 +722,6 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '16px 8px', fontSize: '14px', color: '#6B7280' }}>
-                      {product.sku}
-                    </td>
                     <td style={{ padding: '16px 8px', fontSize: '14px', fontWeight: 600, color: '#1A1C1E', textAlign: 'center' }}>
                       {product.quantity}
                     </td>
@@ -233,6 +742,34 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
                       >
                         {status}
                       </span>
+                    </td>
+                    <td style={{ padding: '16px 8px', fontSize: '13px', color: '#6B7280' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
+                        <span>{product.lastStockUpdate}</span>
+                        <button
+                          onClick={() => handleOpenEditForm(product)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#E5E7EB';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                          title="Edit quantity"
+                        >
+                          <Edit2 size={16} style={{ color: '#6B7280' }} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

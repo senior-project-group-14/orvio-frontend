@@ -157,6 +157,28 @@ export interface DeviceInventoryItem {
   last_stock_update?: string | null;
 }
 
+export interface AddInventoryResponse {
+  device_id: string;
+  product_id: string;
+  product_name: string;
+  brand_name?: string | null;
+  previous_stock: number;
+  quantity_added: number;
+  new_stock: number;
+  critic_stock: number;
+  last_stock_update: string;
+}
+
+export interface UpdateInventoryResponse {
+  device_id: string;
+  product_id: string;
+  product_name: string;
+  brand_name?: string | null;
+  new_stock: number;
+  critic_stock: number;
+  last_stock_update: string;
+}
+
 export interface TransactionItem {
   transaction_item_id: string;
   product_id: string;
@@ -335,6 +357,20 @@ export async function getDeviceTelemetry(deviceId: string, pagination?: Paginati
 export async function getDeviceInventory(deviceId: string, pagination?: PaginationParams): Promise<PaginatedResponse<DeviceInventoryItem>> {
   const query = buildQuery({ page: pagination?.page, limit: pagination?.limit });
   return apiRequest<PaginatedResponse<DeviceInventoryItem>>(`/devices/${deviceId}/inventory${query}`);
+}
+
+export async function addInventoryItem(deviceId: string, productId: string, quantity: number): Promise<AddInventoryResponse> {
+  return apiRequest<AddInventoryResponse>(`/devices/${deviceId}/inventory`, {
+    method: 'POST',
+    body: JSON.stringify({ product_id: productId, quantity }),
+  });
+}
+
+export async function updateInventoryQuantity(deviceId: string, productId: string, quantity: number): Promise<UpdateInventoryResponse> {
+  return apiRequest<UpdateInventoryResponse>(`/devices/${deviceId}/inventory/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ quantity }),
+  });
 }
 
 export async function getDeviceTransactions(deviceId: string, pagination?: PaginationParams): Promise<PaginatedResponse<DeviceTransaction>> {
