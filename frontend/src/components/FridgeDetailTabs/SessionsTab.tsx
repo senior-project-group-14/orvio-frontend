@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { EmptyState } from '../ui/empty-state';
 import { TableSkeleton } from '../ui/table-skeleton';
 import { getDeviceTransactions } from '../../api/client';
@@ -19,10 +19,18 @@ interface Session {
   actions: { type: 'take' | 'return'; product: string; quantity: number }[];
 }
 
-export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTabProps) {
+function SessionsTab({ fridgeId, isLoading = false }: SessionsTabProps) {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isFetching, setIsFetching] = useState(false);
+
+  const openSession = useCallback((session: Session) => {
+    setSelectedSession(session);
+  }, []);
+
+  const closeSession = useCallback(() => {
+    setSelectedSession(null);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -138,7 +146,7 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
                           fontFamily: 'monospace'
                         }}
                         title={session.transactionCode}
-                        onClick={() => setSelectedSession(session)}
+                        onClick={() => openSession(session)}
                       >
                         {session.transactionCode}
                       </code>
@@ -154,7 +162,7 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
                     </td>
                     <td style={{ padding: '16px 8px', textAlign: 'center' }}>
                       <button
-                        onClick={() => setSelectedSession(session)}
+                        onClick={() => openSession(session)}
                         className="transition-colors hover:underline"
                         style={{
                           background: 'none',
@@ -179,8 +187,10 @@ export default function SessionsTab({ fridgeId, isLoading = false }: SessionsTab
       <SessionDetailsDrawer
         isOpen={selectedSession !== null}
         session={selectedSession}
-        onClose={() => setSelectedSession(null)}
+        onClose={closeSession}
       />
     </div>
   );
 }
+
+export default memo(SessionsTab);

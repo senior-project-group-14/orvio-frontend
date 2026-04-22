@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { ArrowLeft } from 'lucide-react';
@@ -38,7 +38,7 @@ const defaultFridgeData: FridgeHeaderData = {
   lastActive: 'N/A',
 };
 
-export default function FridgeDetail({ onLogout, onNavigate, fridgeId }: FridgeDetailProps) {
+function FridgeDetail({ onLogout, onNavigate, fridgeId }: FridgeDetailProps) {
   const [activeTab, setActiveTab] = useState('Status');
   const [isLoading, setIsLoading] = useState(true);
   const [fridgeData, setFridgeData] = useState<FridgeHeaderData>(defaultFridgeData);
@@ -109,7 +109,10 @@ export default function FridgeDetail({ onLogout, onNavigate, fridgeId }: FridgeD
     };
   }, [fridgeId]);
 
-  const tabs = ['Status', 'Inventory', 'Sessions', 'Alerts'];
+  const tabs = useMemo(() => ['Status', 'Inventory', 'Sessions', 'Alerts'], []);
+  const handleBackToFridges = useCallback(() => {
+    onNavigate('Fridges');
+  }, [onNavigate]);
 
   const getStatusColor = (status: string) => {
     return status === 'online' ? '#10B981' : '#9CA3AF';
@@ -139,7 +142,7 @@ export default function FridgeDetail({ onLogout, onNavigate, fridgeId }: FridgeD
         <main style={{ padding: '24px' }}>
           {/* Back Button */}
           <button
-            onClick={() => onNavigate('Fridges')}
+            onClick={handleBackToFridges}
             className="flex items-center gap-2 mb-4 transition-colors hover:text-blue-700"
             style={{
               background: 'none',
@@ -308,3 +311,5 @@ export default function FridgeDetail({ onLogout, onNavigate, fridgeId }: FridgeD
     </div>
   );
 }
+
+export default memo(FridgeDetail);

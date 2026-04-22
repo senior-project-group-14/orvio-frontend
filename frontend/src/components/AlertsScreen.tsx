@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { Search, X, AlertTriangle } from 'lucide-react';
@@ -119,25 +119,43 @@ export default function AlertsScreen({ onLogout, onNavigate }: AlertsScreenProps
       }
     };
 
-    loadAlerts();
+    const deferredLoadId =
+      typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback(() => {
+            void loadAlerts();
+          }, { timeout: 1000 })
+        : window.setTimeout(() => {
+            void loadAlerts();
+          }, 0);
+
     return () => {
       isMounted = false;
+      if (typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(deferredLoadId as number);
+      } else {
+        window.clearTimeout(deferredLoadId as number);
+      }
     };
   }, []);
 
   // Filter alerts
-  const filteredAlerts = alerts.filter((alert) => {
-    const matchesSearch =
-      alert.type.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      alert.fridge.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      alert.message.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredAlerts = useMemo(
+    () =>
+      alerts.filter((alert) => {
+        const normalizedSearch = searchQuery.toLowerCase();
+        const matchesSearch =
+          alert.type.toLowerCase().includes(normalizedSearch) ||
+          alert.fridge.toLowerCase().includes(normalizedSearch) ||
+          alert.message.toLowerCase().includes(normalizedSearch);
 
-    const matchesSeverity = !severityFilter || alert.severity === severityFilter;
-    const matchesStatus = !statusFilter || alert.status === statusFilter;
-    const matchesFridge = !fridgeFilter || alert.fridgeId === fridgeFilter;
+        const matchesSeverity = !severityFilter || alert.severity === severityFilter;
+        const matchesStatus = !statusFilter || alert.status === statusFilter;
+        const matchesFridge = !fridgeFilter || alert.fridgeId === fridgeFilter;
 
-    return matchesSearch && matchesSeverity && matchesStatus && matchesFridge;
-  });
+        return matchesSearch && matchesSeverity && matchesStatus && matchesFridge;
+      }),
+    [alerts, searchQuery, severityFilter, statusFilter, fridgeFilter],
+  );
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {

@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Thermometer, Wifi, DoorOpen, Activity } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { ChartSkeleton } from '../ui/table-skeleton';
@@ -8,9 +9,11 @@ interface StatusTabProps {
   isLoading?: boolean;
 }
 
-export default function StatusTab({ fridgeData, temperatureTrend, isLoading = false }: StatusTabProps) {
-  const trendValues = temperatureTrend && temperatureTrend.length > 0 ? temperatureTrend : [];
-  const tempData = trendValues.map((value) => ({ value }));
+function StatusTab({ fridgeData, temperatureTrend, isLoading = false }: StatusTabProps) {
+  const tempData = useMemo(() => {
+    const trendValues = temperatureTrend && temperatureTrend.length > 0 ? temperatureTrend : [];
+    return trendValues.map((value) => ({ value }));
+  }, [temperatureTrend]);
 
   if (isLoading) {
     return <ChartSkeleton />;
@@ -160,3 +163,5 @@ export default function StatusTab({ fridgeData, temperatureTrend, isLoading = fa
     </div>
   );
 }
+
+export default memo(StatusTab);

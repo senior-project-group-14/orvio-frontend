@@ -58,6 +58,12 @@ export default defineConfig({
     outDir: 'build',
   },
 
+  preview: {
+    host: '127.0.0.1',
+    port: 4174,
+    strictPort: true,
+  },
+
   // ⚠️ server kısmı SADECE LOCAL DEV içindir
   server: {
     port: 5173,

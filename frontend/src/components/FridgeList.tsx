@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { Search, Plus, AlertTriangle } from 'lucide-react';
@@ -66,13 +66,13 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
     void loadFridges();
   }, [loadFridges]);
 
-  const handleClearFilters = () => {
+  const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     setStatusFilter('');
     setLocationFilter('');
-  };
+  }, []);
 
-  const handleExport = async (format: 'csv' | 'png' | 'pdf') => {
+  const handleExport = useCallback(async (format: 'csv' | 'png' | 'pdf') => {
     const data = fridges.map(f => ({
       Name: f.name,
       Location: f.location,
@@ -89,15 +89,15 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
         title: 'Fridge List'
       });
     }
-  };
+  }, [fridges]);
 
-  const handleOpenEdit = (fridgeId: string) => {
+  const handleOpenEdit = useCallback((fridgeId: string) => {
     const fridge = fridges.find((item) => item.id === fridgeId) || null;
     setEditingFridge(fridge);
     setShowEditFridgeModal(Boolean(fridge));
-  };
+  }, [fridges]);
 
-  const handleSaveEdit = async (data: { name: string; location: string; temperature?: string; assignedAdminIds: string[] }) => {
+  const handleSaveEdit = useCallback(async (data: { name: string; location: string; temperature?: string; assignedAdminIds: string[] }) => {
     if (!editingFridge) return;
 
     const parsedTemperature = data.temperature?.trim() ? Number(data.temperature) : undefined;
@@ -143,15 +143,15 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
     }
 
     await loadFridges();
-  };
+  }, [editingFridge, loadFridges]);
 
-  const handleOpenDeleteConfirm = (fridgeId: string) => {
+  const handleOpenDeleteConfirm = useCallback((fridgeId: string) => {
     const fridge = fridges.find((item) => item.id === fridgeId) || null;
     setDeletingFridge(fridge);
     setShowDeleteConfirmModal(Boolean(fridge));
-  };
+  }, [fridges]);
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = useCallback(async () => {
     if (!deletingFridge) return;
 
     setIsDeletingFridge(true);
@@ -166,7 +166,19 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
     } finally {
       setIsDeletingFridge(false);
     }
-  };
+  }, [deletingFridge, loadFridges]);
+
+  const editInitialData = useMemo(
+    () =>
+      editingFridge
+        ? {
+            name: editingFridge.name,
+            location: editingFridge.location,
+            temperature: editingFridge.temperature,
+          }
+        : undefined,
+    [editingFridge],
+  );
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: '#F5F7FA' }}>
@@ -323,15 +335,7 @@ export default function FridgeList({ onLogout, onNavigate, onViewFridge }: Fridg
           setEditingFridge(null);
         }}
         fridgeId={editingFridge?.id || ''}
-        initialData={
-          editingFridge
-            ? {
-                name: editingFridge.name,
-                location: editingFridge.location,
-                temperature: editingFridge.temperature,
-              }
-            : undefined
-        }
+        initialData={editInitialData}
         onSave={handleSaveEdit}
       />
 

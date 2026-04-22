@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { LayoutDashboard, Refrigerator, Bell, Receipt, UserCog, Settings, Package } from 'lucide-react';
 import { getCurrentUserRole } from '../api/client';
 
@@ -6,19 +7,22 @@ interface SidebarProps {
   onNavigate: (page: string) => void;
 }
 
-export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
+function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const currentUserRole = getCurrentUserRole();
   const isSystemAdmin = currentUserRole === '1' || currentUserRole === 'SYSTEM_ADMIN';
 
-  const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard },
-    { name: 'Fridges', icon: Refrigerator },
-    { name: 'Products', icon: Package },
-    { name: 'Alerts', icon: Bell },
-    { name: 'Transactions', icon: Receipt },
-    ...(isSystemAdmin ? [{ name: 'Admin Management', icon: UserCog }] : []),
-    { name: 'Settings', icon: Settings },
-  ];
+  const menuItems = useMemo(
+    () => [
+      { name: 'Dashboard', icon: LayoutDashboard },
+      { name: 'Fridges', icon: Refrigerator },
+      { name: 'Products', icon: Package },
+      { name: 'Alerts', icon: Bell },
+      { name: 'Transactions', icon: Receipt },
+      ...(isSystemAdmin ? [{ name: 'Admin Management', icon: UserCog }] : []),
+      { name: 'Settings', icon: Settings },
+    ],
+    [isSystemAdmin],
+  );
 
   return (
     <aside 
@@ -115,3 +119,5 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
     </aside>
   );
 }
+
+export default memo(Sidebar);

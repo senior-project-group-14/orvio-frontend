@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ArrowDownCircle, ArrowUpCircle, Activity } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import { EmptyState } from './ui/empty-state';
@@ -13,7 +14,7 @@ interface RecentActivityProps {
   }[];
 }
 
-export default function RecentActivity({ isLoading = false, activities }: RecentActivityProps) {
+function RecentActivity({ isLoading = false, activities }: RecentActivityProps) {
   const resolvedActivities = activities ?? [];
 
   return (
@@ -114,3 +115,5 @@ export default function RecentActivity({ isLoading = false, activities }: Recent
     </div>
   );
 }
+
+export default memo(RecentActivity);

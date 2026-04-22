@@ -2,9 +2,6 @@
  * Export utilities for exporting data and UI elements to various formats
  */
 
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
-
 // Type definitions for export functions
 export type ExportFormat = 'csv' | 'png' | 'pdf';
 
@@ -56,6 +53,8 @@ export async function exportToPNG(
   filename: string = 'export.png'
 ): Promise<void> {
   try {
+    const { default: html2canvas } = await import('html2canvas');
+
     const element = document.getElementById(elementId);
     if (!element) {
       alert('Element not found');
@@ -105,6 +104,12 @@ export async function exportToPDF(
   options?: { title?: string; orientation?: 'portrait' | 'landscape' }
 ): Promise<void> {
   try {
+    const [{ jsPDF }, html2CanvasModule] = await Promise.all([
+      import('jspdf'),
+      import('html2canvas'),
+    ]);
+    const html2canvas = html2CanvasModule.default;
+
     const doc = new jsPDF({
       orientation: options?.orientation || 'portrait',
       unit: 'mm',

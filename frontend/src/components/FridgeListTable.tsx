@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { MoreVertical, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
@@ -23,7 +23,7 @@ interface FridgeListTableProps {
   fridges: FridgeData[];
 }
 
-export default function FridgeListTable({ 
+function FridgeListTable({ 
   searchQuery, 
   statusFilter, 
   locationFilter,
@@ -84,26 +84,36 @@ export default function FridgeListTable({
   };
 
   // Filter fridges
-  const filteredFridges = fridges.filter((fridge) => {
-    const matchesSearch = 
-      fridge.name.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = 
-      !statusFilter || 
-      fridge.status === statusFilter;
-    
-    const matchesLocation = 
-      !locationFilter || 
-      fridge.location.toLowerCase().includes(locationFilter.replace('-', ' '));
+  const filteredFridges = useMemo(() => {
+    const normalizedSearch = searchQuery.toLowerCase();
+    const normalizedLocation = locationFilter.replace('-', ' ');
 
-    return matchesSearch && matchesStatus && matchesLocation;
-  });
+    return fridges.filter((fridge) => {
+      const matchesSearch = fridge.name.toLowerCase().includes(normalizedSearch);
+      const matchesStatus = !statusFilter || fridge.status === statusFilter;
+      const matchesLocation = !locationFilter || fridge.location.toLowerCase().includes(normalizedLocation);
+
+      return matchesSearch && matchesStatus && matchesLocation;
+    });
+  }, [fridges, searchQuery, statusFilter, locationFilter]);
 
   // Pagination
-  const totalPages = Math.ceil(filteredFridges.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const endIndex = startIndex + rowsPerPage;
-  const currentFridges = filteredFridges.slice(startIndex, endIndex);
+  const totalPages = useMemo(() => Math.ceil(filteredFridges.length / rowsPerPage), [filteredFridges.length, rowsPerPage]);
+  const startIndex = useMemo(() => (currentPage - 1) * rowsPerPage, [currentPage, rowsPerPage]);
+  const currentFridges = useMemo(
+    () => filteredFridges.slice(startIndex, startIndex + rowsPerPage),
+    [filteredFridges, startIndex, rowsPerPage],
+  );
+  const pageNumbers = useMemo(
+    () =>
+      Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+        if (totalPages <= 5) return i + 1;
+        if (currentPage <= 3) return i + 1;
+        if (currentPage >= totalPages - 2) return totalPages - 4 + i;
+        return currentPage - 2 + i;
+      }),
+    [currentPage, totalPages],
+  );
 
   const getStatusColor = (status: string) => {
     return status === 'online' ? '#10B981' : '#9CA3AF';
@@ -352,18 +362,7 @@ export default function FridgeListTable({
             <ChevronLeft size={18} />
           </button>
 
-          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-            let pageNum;
-            if (totalPages <= 5) {
-              pageNum = i + 1;
-            } else if (currentPage <= 3) {
-              pageNum = i + 1;
-            } else if (currentPage >= totalPages - 2) {
-              pageNum = totalPages - 4 + i;
-            } else {
-              pageNum = currentPage - 2 + i;
-            }
-
+          {pageNumbers.map((pageNum) => {
             const isActive = pageNum === currentPage;
 
             return (
@@ -505,3 +504,5 @@ export default function FridgeListTable({
     </div>
   );
 }
+
+export default memo(FridgeListTable);

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Refrigerator, Wifi, Activity, AlertTriangle } from 'lucide-react';
 
 interface SummaryCardsProps {
@@ -10,7 +11,7 @@ interface SummaryCardsProps {
   };
 }
 
-export default function SummaryCards({ isLoading = false, stats }: SummaryCardsProps) {
+function SummaryCards({ isLoading = false, stats }: SummaryCardsProps) {
   const resolvedStats = stats || {
     totalFridges: 0,
     onlineFridges: 0,
@@ -142,3 +143,5 @@ export default function SummaryCards({ isLoading = false, stats }: SummaryCardsP
     </div>
   );
 }
+
+export default memo(SummaryCards);

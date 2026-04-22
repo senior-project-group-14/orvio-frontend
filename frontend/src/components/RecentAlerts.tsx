@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { EmptyState } from './ui/empty-state';
 import { AlertTriangle } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
@@ -12,7 +13,7 @@ interface RecentAlertsProps {
   }[];
 }
 
-export default function RecentAlerts({ isLoading = false, alerts }: RecentAlertsProps) {
+function RecentAlerts({ isLoading = false, alerts }: RecentAlertsProps) {
   const resolvedAlerts = alerts ?? [];
 
   const getSeverityColor = (severity: string) => {
@@ -121,3 +122,5 @@ export default function RecentAlerts({ isLoading = false, alerts }: RecentAlerts
     </div>
   );
 }
+
+export default memo(RecentAlerts);

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { X, Clock } from 'lucide-react';
 
 export interface SessionDetail {
@@ -15,7 +16,7 @@ interface SessionDetailsDrawerProps {
   session: SessionDetail | null;
 }
 
-export function SessionDetailsDrawer({ isOpen, onClose, session }: SessionDetailsDrawerProps) {
+function SessionDetailsDrawerComponent({ isOpen, onClose, session }: SessionDetailsDrawerProps) {
   if (!isOpen || !session) return null;
 
   const takenQuantity = session.actions
@@ -144,3 +145,5 @@ export function SessionDetailsDrawer({ isOpen, onClose, session }: SessionDetail
     </>
   );
 }
+
+export const SessionDetailsDrawer = memo(SessionDetailsDrawerComponent);

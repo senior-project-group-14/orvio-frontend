@@ -1,14 +1,16 @@
+import { lazy, memo, startTransition, Suspense, useEffect, useMemo, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import SummaryCards from './SummaryCards';
 import RecentAlerts from './RecentAlerts';
 import RecentActivity from './RecentActivity';
-import ConsumptionChart from './ConsumptionChart';
-import { useState, useEffect } from 'react';
+import { ChartSkeleton } from './ui/table-skeleton';
 import {
   getDashboardSummary,
 } from '../api/client';
 import { formatRelativeTime, formatTime } from '../utils/time';
+
+const ConsumptionChart = lazy(() => import('./ConsumptionChart'));
 
 type DashboardAlert = {
   type: string;
@@ -32,12 +34,17 @@ interface DashboardProps {
   onNavigate: (page: string) => void;
 }
 
-export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
+function Dashboard({ onLogout, onNavigate }: DashboardProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<{ totalFridges: number; onlineFridges: number; activeSessions: number; totalAlerts: number } | null>(null);
   const [recentAlerts, setRecentAlerts] = useState<DashboardAlert[] | null>(null);
   const [recentActivity, setRecentActivity] = useState<DashboardActivity[] | null>(null);
   const [weeklyData, setWeeklyData] = useState<WeeklyActivity[] | null>(null);
+
+  const resolvedStats = useMemo(() => stats || undefined, [stats]);
+  const resolvedRecentAlerts = useMemo(() => recentAlerts || undefined, [recentAlerts]);
+  const resolvedRecentActivity = useMemo(() => recentActivity || undefined, [recentActivity]);
+  const resolvedWeeklyData = useMemo(() => weeklyData || undefined, [weeklyData]);
 
   const getSeverity = (alertType?: string | null): 'High' | 'Medium' | 'Low' => {
     const normalized = (alertType || '').toLowerCase();
@@ -98,9 +105,13 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
 
         if (!isMounted) return;
         setStats(nextStats);
-        setRecentAlerts(nextRecentAlerts);
-        setRecentActivity(nextRecentActivity);
-        setWeeklyData(nextWeeklyData);
+
+        // Hydrate non-critical sections in a transition to keep the initial dashboard paint responsive.
+        startTransition(() => {
+          setRecentAlerts(nextRecentAlerts);
+          setRecentActivity(nextRecentActivity);
+          setWeeklyData(nextWeeklyData);
+        });
       } catch (error) {
         console.error('Failed to load dashboard data', error);
       } finally {
@@ -127,24 +138,26 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
         {/* Content */}
         <main style={{ padding: '24px' }}>
           {/* Summary Cards */}
-          <SummaryCards isLoading={isLoading} stats={stats || undefined} />
+          <SummaryCards isLoading={isLoading} stats={resolvedStats} />
 
           {/* Widgets Grid */}
           <div className="grid grid-cols-3 gap-6" style={{ marginTop: '24px' }}>
             {/* Recent Alerts - 2 columns */}
             <div className="col-span-2">
-              <RecentAlerts isLoading={isLoading} alerts={recentAlerts || undefined} />
+              <RecentAlerts isLoading={isLoading} alerts={resolvedRecentAlerts} />
             </div>
 
             {/* Recent Activity - 1 column */}
             <div className="col-span-1">
-              <RecentActivity isLoading={isLoading} activities={recentActivity || undefined} />
+              <RecentActivity isLoading={isLoading} activities={resolvedRecentActivity} />
             </div>
           </div>
 
           {/* Consumption Chart - Full Width */}
           <div style={{ marginTop: '24px' }}>
-            <ConsumptionChart isLoading={isLoading} data={weeklyData || undefined} />
+            <Suspense fallback={<ChartSkeleton />}>
+              <ConsumptionChart isLoading={isLoading} data={resolvedWeeklyData} />
+            </Suspense>
           </div>
 
           {/* Footer */}
@@ -158,3 +171,5 @@ export default function Dashboard({ onLogout, onNavigate }: DashboardProps) {
     </div>
   );
 }
+
+export default memo(Dashboard);

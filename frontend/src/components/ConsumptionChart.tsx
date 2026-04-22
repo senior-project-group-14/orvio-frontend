@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ExportButton } from './ui/export-button';
 import { ChartSkeleton } from './ui/table-skeleton';
@@ -8,10 +9,10 @@ interface ConsumptionChartProps {
   data?: { day: string; sessions: number }[];
 }
 
-export default function ConsumptionChart({ isLoading = false, data }: ConsumptionChartProps) {
+function ConsumptionChart({ isLoading = false, data }: ConsumptionChartProps) {
   const resolvedData = data ?? [];
 
-  const handleExport = async (format: 'csv' | 'png' | 'pdf') => {
+  const handleExport = useCallback(async (format: 'csv' | 'png' | 'pdf') => {
     const data = resolvedData.map(item => ({
       Day: item.day,
       Sessions: item.sessions
@@ -25,7 +26,7 @@ export default function ConsumptionChart({ isLoading = false, data }: Consumptio
         title: 'Weekly Activity'
       });
     }
-  };
+  }, [resolvedData]);
 
   if (isLoading) {
     return <ChartSkeleton />;
@@ -77,3 +78,5 @@ export default function ConsumptionChart({ isLoading = false, data }: Consumptio
     </div>
   );
 }
+
+export default memo(ConsumptionChart);

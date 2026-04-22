@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bell, LogOut } from 'lucide-react';
 import { getAdminDevices, getDeviceAlerts, getAlertReads, markAlertRead } from '../api/client';
 import { ALERT_STATUS } from '../utils/constants';
@@ -22,20 +22,23 @@ interface NotificationItem {
 
 const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
-export default function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProps) {
+function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProps) {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const unreadCount = notifications.filter((notification) => notification.statusId === ALERT_STATUS.OPEN).length;
+  const unreadCount = useMemo(
+    () => notifications.filter((notification) => notification.statusId === ALERT_STATUS.OPEN).length,
+    [notifications],
+  );
 
   const badgeLabel = useMemo(() => {
     if (unreadCount > 99) return '99+';
     return String(unreadCount);
   }, [unreadCount]);
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     setIsLoadingNotifications(true);
     try {
       const devicesResponse = await getAdminDevices({ limit: 100 });
@@ -87,18 +90,42 @@ export default function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProp
     } finally {
       setIsLoadingNotifications(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    void loadNotifications();
-    const intervalId = window.setInterval(() => {
+    const runLoad = () => {
+      if (document.visibilityState === 'hidden') return;
       void loadNotifications();
+    };
+
+    const idleId =
+      typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback(() => {
+            runLoad();
+          }, { timeout: 750 })
+        : window.setTimeout(runLoad, 0);
+
+    const intervalId = window.setInterval(() => {
+      runLoad();
     }, 60_000);
 
-    return () => {
-      window.clearInterval(intervalId);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        runLoad();
+      }
     };
-  }, []);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      if (typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId as number);
+      } else {
+        window.clearTimeout(idleId as number);
+      }
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [loadNotifications]);
 
   useEffect(() => {
     const onMouseDown = (event: MouseEvent) => {
@@ -112,12 +139,12 @@ export default function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProp
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
-  const navigateToAlerts = () => {
+  const navigateToAlerts = useCallback(() => {
     window.location.hash = '#alerts';
     setIsNotificationsOpen(false);
-  };
+  }, []);
 
-  const handleNotificationClick = async (notification: NotificationItem) => {
+  const handleNotificationClick = useCallback(async (notification: NotificationItem) => {
     if (notification.statusId === ALERT_STATUS.OPEN) {
       const readAtNow = new Date().toISOString();
 
@@ -139,7 +166,7 @@ export default function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProp
 
     setIsNotificationsOpen(false);
     window.location.hash = '#alerts';
-  };
+  }, [loadNotifications]);
 
   return (
     <header 
@@ -289,3 +316,5 @@ export default function Topbar({ onLogout, pageTitle = 'Dashboard' }: TopbarProp
     </header>
   );
 }
+
+export default memo(Topbar);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { Package, Plus, X, Edit2 } from 'lucide-react';
 import { EmptyState } from '../ui/empty-state';
 import { TableSkeleton } from '../ui/table-skeleton';
@@ -25,7 +25,7 @@ interface AssignedProduct {
   brand_name?: string;
 }
 
-export default function InventoryTab({ fridgeId, isLoading = false }: InventoryTabProps) {
+function InventoryTab({ fridgeId, isLoading = false }: InventoryTabProps) {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
@@ -131,11 +131,15 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
   }, [products]);
 
   // Filter products
-  const filteredProducts = products.filter(product => {
-    const matchesCategory = !categoryFilter || product.category === categoryFilter;
-    const matchesLowStock = !showLowStockOnly || product.quantity < product.threshold;
-    return matchesCategory && matchesLowStock;
-  });
+  const filteredProducts = useMemo(
+    () =>
+      products.filter((product) => {
+        const matchesCategory = !categoryFilter || product.category === categoryFilter;
+        const matchesLowStock = !showLowStockOnly || product.quantity < product.threshold;
+        return matchesCategory && matchesLowStock;
+      }),
+    [products, categoryFilter, showLowStockOnly],
+  );
 
   const getStatus = (quantity: number, threshold: number) => {
     return quantity >= threshold ? 'OK' : 'Low';
@@ -781,3 +785,5 @@ export default function InventoryTab({ fridgeId, isLoading = false }: InventoryT
     </div>
   );
 }
+
+export default memo(InventoryTab);

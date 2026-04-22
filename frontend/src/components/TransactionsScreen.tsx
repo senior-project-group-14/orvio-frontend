@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import { Search, Calendar } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { EmptyState } from './ui/empty-state';
-import { ExportButton } from './ui/export-button';
 import { TableSkeleton, ChartSkeleton } from './ui/table-skeleton';
 import { getAdminDevices, getDeviceTransactions } from '../api/client';
 import { formatDuration, formatTime } from '../utils/time';
-import { exportData } from '../utils/export';
 import { SessionDetailsDrawer, SessionDetail } from './SessionDetailsDrawer';
+
+const TransactionsAnalytics = lazy(() => import('./TransactionsAnalytics'));
 
 interface TransactionsScreenProps {
   onLogout: () => void;
@@ -110,9 +109,22 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
       }
     };
 
-    loadTransactions();
+    const deferredLoadId =
+      typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback(() => {
+            void loadTransactions();
+          }, { timeout: 1000 })
+        : window.setTimeout(() => {
+            void loadTransactions();
+          }, 0);
+
     return () => {
       isMounted = false;
+      if (typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(deferredLoadId as number);
+      } else {
+        window.clearTimeout(deferredLoadId as number);
+      }
     };
   }, []);
 
@@ -130,20 +142,25 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
   }, [dateRange]);
 
   // Filter transactions
-  const filteredTransactions = transactions.filter((txn) => {
-    const matchesSearch =
-      txn.product.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      txn.fridge.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      txn.sessionId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      txn.transactionCode.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredTransactions = useMemo(
+    () =>
+      transactions.filter((txn) => {
+        const normalizedSearch = searchQuery.toLowerCase();
+        const matchesSearch =
+          txn.product.toLowerCase().includes(normalizedSearch) ||
+          txn.fridge.toLowerCase().includes(normalizedSearch) ||
+          txn.sessionId.toLowerCase().includes(normalizedSearch) ||
+          txn.transactionCode.toLowerCase().includes(normalizedSearch);
 
-    const matchesFridge = !fridgeFilter || txn.fridgeId === fridgeFilter;
-    const matchesProduct = !productFilter || txn.product === productFilter;
+        const matchesFridge = !fridgeFilter || txn.fridgeId === fridgeFilter;
+        const matchesProduct = !productFilter || txn.product === productFilter;
 
-    const matchesDate = dateRangeStart ? new Date(txn.createdAt) >= dateRangeStart : true;
+        const matchesDate = dateRangeStart ? new Date(txn.createdAt) >= dateRangeStart : true;
 
-    return matchesSearch && matchesFridge && matchesProduct && matchesDate;
-  });
+        return matchesSearch && matchesFridge && matchesProduct && matchesDate;
+      }),
+    [transactions, searchQuery, fridgeFilter, productFilter, dateRangeStart],
+  );
 
   const getActionColor = (action: string) => {
     return action === 'Take' ? '#2563EB' : '#059669';
@@ -234,38 +251,6 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
       actions: session.actions,
     };
   }, [selectedSessionId, sessionsById]);
-
-  const handleTopProductsExport = async (format: 'csv' | 'png' | 'pdf') => {
-    const data = topProductsData.map(item => ({
-      Product: item.name,
-      Count: item.count
-    }));
-    
-    if (format === 'csv') {
-      await exportData(format, data, { filename: 'top-products' });
-    } else {
-      await exportData(format, 'top-products-chart', { 
-        filename: 'top-products',
-        title: 'Top Products'
-      });
-    }
-  };
-
-  const handleHourlyActivityExport = async (format: 'csv' | 'png' | 'pdf') => {
-    const data = hourlyActivityData.map(item => ({
-      Hour: item.hour,
-      Count: item.count
-    }));
-    
-    if (format === 'csv') {
-      await exportData(format, data, { filename: 'hourly-activity' });
-    } else {
-      await exportData(format, 'hourly-activity-chart', { 
-        filename: 'hourly-activity',
-        title: 'Hourly Activity'
-      });
-    }
-  };
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: '#F5F7FA' }}>
@@ -556,85 +541,20 @@ export default function TransactionsScreen({ onLogout, onNavigate }: Transaction
           </div>
 
           {/* Analytics Section */}
-          <div className="grid grid-cols-2 gap-6" style={{ marginBottom: '24px' }}>
-            {/* Top Products Chart */}
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : (
-              <div
-                id="top-products-chart"
-                className="bg-white"
-                style={{
-                  height: '260px',
-                  borderRadius: '12px',
-                  boxShadow: '0 3px 8px rgba(0,0,0,0.05)',
-                  padding: '20px'
-                }}
-              >
-                <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1A1C1E' }}>
-                    Top Products
-                  </h3>
-                  <ExportButton onExport={handleTopProductsExport} />
-                </div>
-                <ResponsiveContainer width="100%" height="85%">
-                  <BarChart data={topProductsData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-                    <XAxis type="number" tick={{ fill: '#6B7280', fontSize: 12 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fill: '#6B7280', fontSize: 12 }} width={80} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#FFFFFF',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '13px'
-                      }}
-                    />
-                    <Bar dataKey="count" fill="#2563EB" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-2 gap-6" style={{ marginBottom: '24px' }}>
+                <ChartSkeleton />
+                <ChartSkeleton />
               </div>
-            )}
-
-            {/* Hourly Activity Chart */}
-            {isLoading ? (
-              <ChartSkeleton />
-            ) : (
-              <div
-                id="hourly-activity-chart"
-                className="bg-white"
-                style={{
-                  height: '260px',
-                  borderRadius: '12px',
-                  boxShadow: '0 3px 8px rgba(0,0,0,0.05)',
-                  padding: '20px'
-                }}
-              >
-                <div className="flex items-center justify-between" style={{ marginBottom: '16px' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1A1C1E' }}>
-                    Hourly Activity
-                  </h3>
-                  <ExportButton onExport={handleHourlyActivityExport} />
-                </div>
-                <ResponsiveContainer width="100%" height="85%">
-                  <LineChart data={hourlyActivityData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-                    <XAxis dataKey="hour" tick={{ fill: '#6B7280', fontSize: 12 }} />
-                    <YAxis tick={{ fill: '#6B7280', fontSize: 12 }} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#FFFFFF',
-                        border: '1px solid #E5E7EB',
-                        borderRadius: '8px',
-                        fontSize: '13px'
-                      }}
-                    />
-                    <Line type="monotone" dataKey="count" stroke="#2563EB" strokeWidth={2} dot={{ fill: '#2563EB' }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
+            }
+          >
+            <TransactionsAnalytics
+              isLoading={isLoading}
+              topProductsData={topProductsData}
+              hourlyActivityData={hourlyActivityData}
+            />
+          </Suspense>
 
           {/* Footer */}
           <div className="text-center" style={{ marginTop: '32px' }}>
