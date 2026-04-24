@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { io, Socket } from "socket.io-client";
 import { getApiBaseUrl, getSocketServerUrl } from "../backendUrl";
+import React from "react";
 
 interface CartItem {
   id: string;
@@ -20,7 +21,7 @@ interface CartApiItem {
 const SESSION_DURATION_SECONDS = 120;
 const ONE_TIME_EXTENSION_SECONDS = 120;
 const AUTO_COMPLETE_SECONDS = 10;
-const SESSION_STATE_SYNC_INTERVAL_MS = 5000;
+const SESSION_STATE_SYNC_INTERVAL_MS = 1000;
 
 export function ShoppingCartPage() {
   const navigate = useNavigate();
@@ -311,7 +312,7 @@ export function ShoppingCartPage() {
     void fetchCart(false);
     const pollTimer = setInterval(() => {
       void fetchCart(true);
-    }, 3000);
+    }, 300);
 
     return () => {
       cancelled = true;
