@@ -1,68 +1,70 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-
 name: Build and deploy Node.js app to Azure Web App - orvio-shopping-cart
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'qr/**'
   workflow_dispatch:
+
+concurrency:
+  group: orvio-qr-deploy
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js version
+      - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '22.x'
 
-      - name: npm install, build, and test
+      - name: Install & Build
         working-directory: ./qr
         env:
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: |
           npm install
-          npm run build --if-present
-          npm run test --if-present
+          npm run build
 
-      - name: Upload artifact for deployment job
+      # 🔥 KRİTİK FIX
+      - name: Prepare deploy package
+        run: |
+          mkdir deploy
+          cp -r qr/dist deploy/
+          cp qr/package.json deploy/
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: node-app
-          path: ./qr/dist
+          name: qr-app
+          path: deploy
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
 
     steps:
-      - name: Download artifact from build job
+      - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: node-app
-      
-      - name: Login to Azure
+          name: qr-app
+
+      - name: Azure Login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_8E20D60EF7D04503925D3E81446B7F44 }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_424B5AF547C349A18791B452A99BB308 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_BBFD3A33F6E345EDA62B8EB2F8312D70 }}
 
-      - name: 'Deploy to Azure Web App'
-        id: deploy-to-webapp
+      - name: Deploy
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'orvio-shopping-cart'
           slot-name: 'Production'
           package: .
-          

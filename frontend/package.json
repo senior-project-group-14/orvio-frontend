@@ -6,7 +6,7 @@
       "dev": "vite",
       "build": "vite build",
       "preview": "vite preview",
-      "start": "npx serve -s dist -l $PORT"
+      "start": "npx serve -s build -l $PORT"
     },
     "dependencies": {
       "@radix-ui/react-accordion": "^1.2.3",
